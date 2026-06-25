@@ -1,0 +1,134 @@
+[
+  {
+    "product_id": "1",
+    "title": "Corven Mechanical Keyboard",
+    "price": 89.0,
+    "currency": "GBP",
+    "category": "electronics",
+    "description": "A 75% mechanical keyboard with hot-swappable tactile switches and a detachable USB-C cable.",
+    "in_stock": true,
+    "rating": 4.5,
+    "specs": { "wireless": false, "backlit": true, "layout": "75%" }
+  },
+  {
+    "product_id": "2",
+    "title": "Halden Running Shorts",
+    "price": 27.5,
+    "currency": "GBP",
+    "category": "apparel",
+    "description": "Lightweight 5-inch running shorts with a zipped rear pocket and reflective trim.",
+    "in_stock": true,
+    "rating": 4.1,
+    "specs": { "material": "recycled polyester", "pockets": 2 }
+  },
+  {
+    "product_id": "3",
+    "title": "Cotton Lounge Joggers",
+    "price": 32.0,
+    "currency": "GBP",
+    "category": "apparel",
+    "description": "Brushed cotton joggers with a drawcord waist, cut for sitting still rather than sprinting.",
+    "in_stock": true,
+    "rating": 4.4,
+    "specs": { "material": "organic cotton", "pockets": 3 }
+  },
+  {
+    "product_id": "4",
+    "title": "Trailhead Fleece Joggers",
+    "price": 38.0,
+    "currency": "GBP",
+    "category": "apparel",
+    "description": "Heavyweight fleece joggers with tapered ankles and a brushed inner face.",
+    "in_stock": false,
+    "rating": 4.0,
+    "specs": { "material": "cotton-poly fleece", "pockets": 2 }
+  },
+  {
+    "product_id": "5",
+    "title": "Meridian Desk Lamp",
+    "price": 48.0,
+    "currency": "GBP",
+    "category": "home",
+    "description": "An adjustable-arm LED desk lamp with three colour temperatures and a weighted base.",
+    "in_stock": true,
+    "rating": 4.6,
+    "specs": { "dimmable": true, "bulb_included": true }
+  },
+  {
+    "product_id": "6",
+    "title": "Nettle 4K Webcam",
+    "price": 74.0,
+    "currency": "GBP",
+    "category": "electronics",
+    "description": "A 4K webcam with autofocus, a physical privacy shutter and a dual-microphone array.",
+    "in_stock": true,
+    "rating": 3.9,
+    "specs": { "resolution": "3840x2160", "tripod_mount": true }
+  },
+  {
+    "product_id": "7",
+    "title": "Aeris Wireless Earbuds",
+    "price": 24.99,
+    "currency": "GBP",
+    "category": "electronics",
+    "description": "Bluetooth 5.3 earbuds with active noise cancellation and a 28-hour charging case.",
+    "in_stock": true,
+    "rating": 3.4,
+    "specs": { "active_noise_cancellation": false, "battery_hours": 28, "water_resistance": "IPX4" }
+  },
+  {
+    "product_id": "8",
+    "title": "Cassia Bluetooth Speaker",
+    "price": 55.0,
+    "currency": "GBP",
+    "category": "electronics",
+    "description": "A palm-sized speaker with a passive radiator and 12 hours of playback.",
+    "in_stock": true,
+    "rating": 4.2,
+    "specs": { "battery_hours": 12, "water_resistance": "IP67" }
+  },
+  {
+    "product_id": "9",
+    "title": "Stoneware Pour-Over Set",
+    "price": 41.0,
+    "currency": "GBP",
+    "category": "home",
+    "description": "A glazed stoneware dripper and carafe, sized for two cups.",
+    "in_stock": true,
+    "rating": 4.7,
+    "specs": { "dishwasher_safe": true, "capacity_ml": 600 }
+  },
+  {
+    "product_id": "10",
+    "title": "Fold Walnut Bookends",
+    "price": 36.0,
+    "currency": "GBP",
+    "category": "home",
+    "description": "A pair of solid walnut bookends with felted bases.",
+    "in_stock": false,
+    "rating": 4.3,
+    "specs": { "material": "walnut", "sold_as": "pair" }
+  },
+  {
+    "product_id": "11",
+    "title": "Linen Table Runner",
+    "price": 14.5,
+    "currency": "GBP",
+    "category": "home",
+    "description": "A stonewashed linen runner, 180cm, in oat or slate.",
+    "in_stock": true,
+    "rating": 4.0,
+    "specs": { "material": "linen", "length_cm": 180 }
+  },
+  {
+    "product_id": "12",
+    "title": "Brindle Wool Throw",
+    "price": 65.0,
+    "currency": "GBP",
+    "category": "home",
+    "description": "A lambswool throw with a herringbone weave and blanket-stitched edges.",
+    "in_stock": true,
+    "rating": 4.8,
+    "specs": { "material": "lambswool", "machine_washable": false }
+  }
+]

@@ -1,0 +1,97 @@
+[
+  {
+    "order_id": "1001",
+    "status": "delivered",
+    "placed_at_days_ago": 45,
+    "delivered_at_days_ago": 40,
+    "carrier": "Royal Mail",
+    "tracking": "RM918274611GB",
+    "items": [
+      { "product_id": "3", "title": "Cotton Lounge Joggers", "qty": 1, "price": 32.0 }
+    ],
+    "total": 32.0,
+    "currency": "GBP"
+  },
+  {
+    "order_id": "1042",
+    "status": "shipped",
+    "placed_at_days_ago": 3,
+    "eta_days_ahead": 2,
+    "carrier": "DHL",
+    "tracking": "JD0002210091827364",
+    "items": [
+      { "product_id": "7", "title": "Aeris Wireless Earbuds", "qty": 1, "price": 24.99 },
+      { "product_id": "11", "title": "Linen Table Runner", "qty": 2, "price": 14.5 }
+    ],
+    "total": 53.99,
+    "currency": "GBP"
+  },
+  {
+    "order_id": "1077",
+    "status": "delayed",
+    "placed_at_days_ago": 12,
+    "carrier": "Evri",
+    "tracking": "H00K7712398450",
+    "delay_reason": "held at the national sorting hub",
+    "items": [
+      { "product_id": "5", "title": "Meridian Desk Lamp", "qty": 1, "price": 48.0 }
+    ],
+    "total": 48.0,
+    "currency": "GBP"
+  },
+  {
+    "order_id": "1088",
+    "status": "refunded",
+    "placed_at_days_ago": 20,
+    "delivered_at_days_ago": 16,
+    "refunded_at_days_ago": 9,
+    "refund_amount": 89.0,
+    "carrier": "DPD",
+    "tracking": "DPD5541209983",
+    "items": [
+      { "product_id": "1", "title": "Corven Mechanical Keyboard", "qty": 1, "price": 89.0 }
+    ],
+    "total": 89.0,
+    "currency": "GBP"
+  },
+  {
+    "order_id": "1099",
+    "status": "cancelled",
+    "placed_at_days_ago": 6,
+    "cancelled_at_days_ago": 6,
+    "cancellation_reason": "cancelled by the customer before dispatch",
+    "carrier": null,
+    "tracking": null,
+    "items": [
+      { "product_id": "9", "title": "Stoneware Pour-Over Set", "qty": 1, "price": 41.0 }
+    ],
+    "total": 41.0,
+    "currency": "GBP"
+  },
+  {
+    "order_id": "1105",
+    "status": "packed",
+    "placed_at_days_ago": 1,
+    "eta_days_ahead": 4,
+    "carrier": "DHL",
+    "tracking": null,
+    "items": [
+      { "product_id": "2", "title": "Halden Running Shorts", "qty": 2, "price": 27.5 }
+    ],
+    "total": 55.0,
+    "currency": "GBP"
+  },
+  {
+    "order_id": "1120",
+    "status": "placed",
+    "placed_at_days_ago": 0,
+    "eta_days_ahead": 6,
+    "carrier": null,
+    "tracking": null,
+    "items": [
+      { "product_id": "12", "title": "Brindle Wool Throw", "qty": 1, "price": 65.0 }
+    ],
+    "total": 65.0,
+    "currency": "GBP"
+  }
+]
