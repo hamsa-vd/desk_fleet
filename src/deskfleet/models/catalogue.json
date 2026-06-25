@@ -1,0 +1,63 @@
+{
+  "_comment": "Pricing and context windows taken from the OpenAI and Groq public pricing pages on 2026-07-27. Providers change these without notice — re-check before quoting cost figures.",
+  "_default_params": [
+    {
+      "name": "temperature",
+      "type": "float",
+      "default": 0.0,
+      "minimum": 0.0,
+      "maximum": 2.0,
+      "description": "Sampling temperature."
+    },
+    {
+      "name": "max_tokens",
+      "type": "int",
+      "default": null,
+      "minimum": 1,
+      "maximum": 32768,
+      "description": "Cap on output tokens."
+    },
+    {
+      "name": "top_p",
+      "type": "float",
+      "default": 1.0,
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Nucleus sampling cutoff."
+    }
+  ],
+  "models": [
+    {
+      "id": "gpt-4o-mini",
+      "provider_id": "openai",
+      "context_window": 128000,
+      "price_in_per_m": 0.15,
+      "price_out_per_m": 0.6,
+      "supports_tools": true
+    },
+    {
+      "id": "gpt-4o",
+      "provider_id": "openai",
+      "context_window": 128000,
+      "price_in_per_m": 2.5,
+      "price_out_per_m": 10.0,
+      "supports_tools": true
+    },
+    {
+      "id": "llama-3.3-70b-versatile",
+      "provider_id": "groq",
+      "context_window": 128000,
+      "price_in_per_m": 0.59,
+      "price_out_per_m": 0.79,
+      "supports_tools": true
+    },
+    {
+      "id": "llama-3.1-8b-instant",
+      "provider_id": "groq",
+      "context_window": 128000,
+      "price_in_per_m": 0.05,
+      "price_out_per_m": 0.08,
+      "supports_tools": true
+    }
+  ]
+}

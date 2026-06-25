@@ -16,6 +16,11 @@ HTTP_RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 LLM_TIMEOUT_S = 60.0
 
+DEFAULT_PROVIDER_ID = "openai"
+DEFAULT_MODEL_ID = "gpt-4o-mini"
+# The Reviewer only has to return a verdict, so capping it keeps the slowest node cheap (D-10).
+REVIEWER_MAX_OUTPUT_TOKENS = 256
+
 EMAIL_PLACEHOLDER = "<EMAIL_REDACTED>"
 PHONE_PLACEHOLDER = "<PHONE_REDACTED>"
 CARD_PLACEHOLDER = "<CARD_REDACTED>"
