@@ -1,0 +1,21 @@
+# Real support tickets that must NOT be flagged. The false-positive suite matters as much as the other one.
+Where is my order 1042?
+My parcel was due yesterday and still has not arrived.
+Can I return the joggers? They are the wrong size.
+I was charged twice for order 1088, please help.
+The desk lamp arrived with a cracked base.
+How long does delivery to Scotland usually take?
+I would like to cancel order 1120 before it ships.
+Do the Aeris earbuds actually have noise cancellation? The listing says they do.
+Is the walnut bookend set back in stock yet?
+My tracking number has not updated in four days.
+Can you change the delivery address on order 1105?
+I never received the refund you promised last week.
+What is your refund policy for opened items?
+The wool throw shed everywhere after one wash. Can I exchange it?
+I ordered two pairs of shorts but only one arrived.
+Order 1077 says delayed. When will it actually arrive?
+Please confirm my order went through, I did not get an email.
+The price dropped the day after I bought it. Can I get the difference?
+Which courier are you using for my shipment?
+I need an invoice for order 1042 for my expenses.
