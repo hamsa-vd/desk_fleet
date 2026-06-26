@@ -21,6 +21,9 @@ HTTP_RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 # Outbound escalation notices are best-effort, so they get a much shorter leash than tool calls.
 WEBHOOK_TIMEOUT_S = 3.0
 
+# A Responder call can run 10-20 seconds with no event, and proxies drop idle connections.
+SSE_HEARTBEAT_S = 15.0
+
 LLM_TIMEOUT_S = 60.0
 
 DEFAULT_PROVIDER_ID = "openai"

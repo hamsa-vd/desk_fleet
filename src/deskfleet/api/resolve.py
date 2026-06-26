@@ -2,10 +2,12 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 
 from deskfleet.api.auth import require_credentials
 from deskfleet.api.contracts import ResolveRequest, TicketResult
+from deskfleet.api.stream import HEADERS, MEDIA_TYPE, event_stream
 from deskfleet.config import get_logger
 from deskfleet.models import Credentials, MissingCredentialError, ParamValidationError
 from deskfleet.runner.events import EventDone
@@ -35,4 +37,18 @@ def resolve_ticket(
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="the run produced no result",
+    )
+
+
+@router.post("/resolve/stream")
+async def resolve_ticket_stream(
+    request: Request,
+    req: ResolveRequest,
+    creds: Annotated[Credentials, Depends(require_credentials)],
+) -> StreamingResponse:
+    """The same run, the same guardrails, the same final payload — only the transport differs."""
+    return StreamingResponse(
+        event_stream(request, req, creds),
+        media_type=MEDIA_TYPE,
+        headers=HEADERS,
     )
