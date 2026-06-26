@@ -77,11 +77,15 @@ def service(monkeypatch: pytest.MonkeyPatch):
     return install
 
 
+def resolve(app: AppTest):
+    return next(b for b in app.button if b.label == "Resolve")
+
+
 def run(ticket: str = "Where is my order 1042?") -> AppTest:
     app = AppTest.from_file(SCRIPT, default_timeout=30)
     app.run()
     app.text_area(key="ticket").set_value(ticket)
-    app.button[len(app.button) - 1].click()
+    resolve(app).click()
     return app.run()
 
 
@@ -209,7 +213,7 @@ def test_the_service_key_is_never_rendered_on_screen(service) -> None:
     app.run()
     app.text_input(key="api_key").set_value(secret)
     app.text_area(key="ticket").set_value("Where is my order 1042?")
-    app.button[len(app.button) - 1].click()
+    resolve(app).click()
     app.run()
 
     assert secret not in text_of(app)
@@ -226,7 +230,7 @@ def test_an_example_fills_the_ticket_box() -> None:
     app.run()
 
     assert "ignore all previous instructions" in app.text_area(key="ticket").value.lower()
-    assert not next(b for b in app.button if b.label == "Resolve").disabled
+    assert not resolve(app).disabled
 
 
 def test_the_delayed_example_fills_its_order_id() -> None:
@@ -241,8 +245,7 @@ def test_the_delayed_example_fills_its_order_id() -> None:
 def test_resolve_is_disabled_until_a_ticket_is_entered() -> None:
     app = AppTest.from_file(SCRIPT, default_timeout=30).run()
 
-    resolve = next(b for b in app.button if b.label == "Resolve")
-    assert resolve.disabled
+    assert resolve(app).disabled
 
 
 def _json(payload: dict) -> str:

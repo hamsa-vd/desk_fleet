@@ -35,9 +35,13 @@ class ServiceConfig:
     base_url: str = "http://localhost:8080"
     api_key: str = ""
     openai_key: str = ""
+    #: Keys entered in the model picker, by provider id. One header per provider, per S-01.
+    provider_keys: dict[str, str] = field(default_factory=dict)
 
     def headers(self) -> dict[str, str]:
         supplied = {"x-api-key": self.api_key, "x-openai-key": self.openai_key}
+        for provider_id, key in self.provider_keys.items():
+            supplied[f"x-{provider_id}-key"] = key
         return {name: value.strip() for name, value in supplied.items() if value.strip()}
 
     def url(self, path: str) -> str:
@@ -93,16 +97,24 @@ def parse_sse(lines: Iterator[str]) -> Iterator[StreamEvent]:
         yield trailing
 
 
+def _body(ticket: str, order_id: str | None, models: dict[str, Any] | None) -> dict[str, Any]:
+    body: dict[str, Any] = {"ticket": ticket}
+    if order_id:
+        body["order_id"] = order_id
+    if models:
+        body["models"] = models
+    return body
+
+
 def stream_ticket(
     config: ServiceConfig,
     ticket: str,
     order_id: str | None = None,
+    models: dict[str, Any] | None = None,
     client: httpx.Client | None = None,
 ) -> Iterator[StreamEvent]:
     """Yield events as the crew works. Raises `StreamUnavailable` if the transport itself fails."""
-    body: dict[str, Any] = {"ticket": ticket}
-    if order_id:
-        body["order_id"] = order_id
+    body = _body(ticket, order_id, models)
 
     owned = client is None
     http = client or httpx.Client(timeout=STREAM_TIMEOUT_S)
@@ -125,12 +137,11 @@ def resolve_ticket(
     config: ServiceConfig,
     ticket: str,
     order_id: str | None = None,
+    models: dict[str, Any] | None = None,
     client: httpx.Client | None = None,
 ) -> dict[str, Any]:
     """The non-streaming fallback. Same run, same result, no progress."""
-    body: dict[str, Any] = {"ticket": ticket}
-    if order_id:
-        body["order_id"] = order_id
+    body = _body(ticket, order_id, models)
 
     owned = client is None
     http = client or httpx.Client(timeout=JSON_TIMEOUT_S)

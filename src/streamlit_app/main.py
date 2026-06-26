@@ -6,7 +6,7 @@ file arranges what comes back.
 
 import streamlit as st
 
-from streamlit_app import render
+from streamlit_app import model_picker, picker_ui, render
 from streamlit_app.client import (
     NODE_LABELS,
     NODES,
@@ -52,11 +52,11 @@ def sidebar() -> ServiceConfig:
             help="Bring your own key and the service runs the crew on it instead.",
         )
 
-        # --- S-09 slots the per-node model controls in here. ---
         st.divider()
-        st.caption("Models: server defaults for every node.")
+        picker_ui.draw_sidebar(ServiceConfig(base_url=base_url, api_key=api_key))
 
-    return ServiceConfig(base_url=base_url, api_key=api_key, openai_key=openai_key)
+    config = ServiceConfig(base_url=base_url, api_key=api_key, openai_key=openai_key)
+    return model_picker.with_credentials(config, picker_ui.state())
 
 
 def examples() -> None:
@@ -102,10 +102,11 @@ def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
     """Drive one run, painting each event as it arrives."""
     ticket = st.session_state.ticket
     order_id = st.session_state.order_id or None
+    models = model_picker.models_payload(picker_ui.state())
     saw_done = False
 
     try:
-        for event in stream_ticket(config, ticket, order_id):
+        for event in stream_ticket(config, ticket, order_id, models):
             if event.type == "node":
                 node = event.data.get("node", "")
                 if node in st.session_state.node_state:
@@ -133,7 +134,7 @@ def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
         st.session_state.notice or "The stream ended without a result. Falling back."
     )
     try:
-        st.session_state.result = resolve_ticket(config, ticket, order_id)
+        st.session_state.result = resolve_ticket(config, ticket, order_id, models)
     except StreamUnavailable as exc:
         st.session_state.error = f"The service could not be reached: {exc}"
 
@@ -186,6 +187,8 @@ def main() -> None:
 
     st.title("🎫 DeskFleet")
     st.caption("Classifier → Researcher → Responder → Reviewer")
+
+    picker_ui.draw_modal(config)
 
     examples()
     st.text_area("Ticket", key="ticket", height=140, disabled=running())
