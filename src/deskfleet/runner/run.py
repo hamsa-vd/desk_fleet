@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Iterator
 from typing import Any
 
-from deskfleet.agents.schemas import Category, Decision, RefusalReason, ToolCall
+from deskfleet.agents.schemas import Category, Decision, EscalationReason, RefusalReason, ToolCall
 from deskfleet.config import constants, get_logger
 from deskfleet.graph.build import build_graph, invocation_config
 from deskfleet.graph.state import initial_state
@@ -19,6 +19,7 @@ from deskfleet.models import Credentials, build_client, resolve
 from deskfleet.observability import (
     estimate_tokens,
     note_budget_exceeded,
+    observe_escalation,
     observe_node,
     observe_refusal,
     observe_ticket,
@@ -38,12 +39,7 @@ from deskfleet.store import TicketRow, ToolCallRow, write_ticket, write_tool_cal
 
 logger = get_logger(__name__)
 
-NODES = ("classifier", "researcher")
-
-#: TEMPORARY. The Responder (S-03) replaces this with a real drafted reply.
-PLACEHOLDER_REPLY = (
-    "Thanks for getting in touch — we have your ticket and a colleague is looking into it."
-)
+NODES = ("classifier", "researcher", "responder")
 
 
 class _Usage:
@@ -74,6 +70,21 @@ def _refusal(ticket_id: str, reason: RefusalReason, body: str, latency_ms: int) 
         category=Category.OTHER if reason is RefusalReason.OUT_OF_SCOPE else None,
         escalation_reason=reason.value,
         escalation_detail=body,
+        latency_ms=latency_ms,
+    )
+
+
+def _escalation(
+    ticket_id: str, state: dict[str, Any], reason: EscalationReason, latency_ms: int
+) -> TicketResult:
+    return TicketResult(
+        ticket_id=ticket_id,
+        decision=Decision.ESCALATE,
+        reply=None,
+        category=state["category"],
+        tool_calls=state["tool_calls"],
+        escalation_reason=reason.value,
+        escalation_detail="the assistant could not draft a reply it was willing to send",
         latency_ms=latency_ms,
     )
 
@@ -176,8 +187,13 @@ def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
             elapsed_ms(),
         )
         observe_refusal(RefusalReason.OUT_OF_SCOPE.value)
+    elif not state["draft"]:
+        # No draft means the Responder could not write one. S-05 refines the assembly; the
+        # decision itself belongs here because only the runner terminates a run.
+        result = _escalation(ticket_id, state, EscalationReason.NO_FACTS_FOUND, elapsed_ms())
+        observe_escalation(EscalationReason.NO_FACTS_FOUND.value)
     else:
-        reply = scan_output(state["draft"] or PLACEHOLDER_REPLY).clean_text
+        reply = scan_output(state["draft"]).clean_text
         result = TicketResult(
             ticket_id=ticket_id,
             decision=Decision.RESOLVED,

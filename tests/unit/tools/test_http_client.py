@@ -112,7 +112,8 @@ def test_total_wait_never_exceeds_the_ceiling(
 
     http_client.get_json("http://orders.test/orders/1", max_attempts=12)
 
-    assert sum(slept) <= constants.HTTP_BACKOFF_TOTAL_CEILING_S
+    # The budget is decremented in floating point, so the sum can land a rounding step above it.
+    assert sum(slept) <= constants.HTTP_BACKOFF_TOTAL_CEILING_S + 1e-9
 
 
 def test_retry_after_header_is_honoured(

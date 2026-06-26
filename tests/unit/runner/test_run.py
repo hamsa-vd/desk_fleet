@@ -1,14 +1,14 @@
 import pytest
 
-from deskfleet.agents.schemas import Category, Decision
+from deskfleet.agents.schemas import Category, Decision, EscalationReason
 from deskfleet.config import constants
 from deskfleet.graph import build as graph_build
 from deskfleet.models import Credentials
 from deskfleet.runner.events import EventDone, EventNode, EventTool, ResolveRequest
-from deskfleet.runner.run import PLACEHOLDER_REPLY, run_ticket
+from deskfleet.runner.run import run_ticket
 from deskfleet.tools import impl
 from deskfleet.tools.http_client import HttpOk
-from tests.conftest import researcher_calling
+from tests.conftest import DEFAULT_DRAFT, FakeChatModel, researcher_calling, responder_says
 
 KEYS = Credentials(server={"openai": "sk-server-000"})
 
@@ -44,7 +44,7 @@ def test_a_support_ticket_resolves_with_a_category(
 
     assert done.result.decision is Decision.RESOLVED
     assert done.result.category is Category.ORDER
-    assert done.result.reply == PLACEHOLDER_REPLY
+    assert done.result.reply == DEFAULT_DRAFT
     assert done.result.ticket_id
     assert done.result.latency_ms >= 0
 
@@ -91,7 +91,7 @@ def test_the_event_stream_reports_each_node_then_exactly_one_done(
     events, _ = _drain(ResolveRequest(ticket="Where is my order 1042?"))
 
     node_events = [e for e in events if isinstance(e, EventNode)]
-    assert [e.node for e in node_events] == ["classifier", "researcher"]
+    assert [e.node for e in node_events] == ["classifier", "researcher", "responder"]
     assert sum(isinstance(e, EventDone) for e in events) == 1
 
 
@@ -248,3 +248,26 @@ def test_a_rejected_call_is_counted_in_the_tool_metric(
         )
         == 1
     )
+
+
+def test_a_responder_that_cannot_draft_escalates_rather_than_replying(
+    client_factory, classifier_says, repository
+) -> None:
+    client_factory(classifier_says("order"), responder=FakeChatModel("not json", "still not json"))
+
+    _, done = _drain(ResolveRequest(ticket="Where is my order 1042?"))
+
+    assert done.result.decision is Decision.ESCALATE
+    assert done.result.reply is None
+    assert done.result.escalation_reason == EscalationReason.NO_FACTS_FOUND.value
+    assert done.result.escalation_detail
+
+
+def test_the_reply_that_reaches_the_caller_is_the_responders_draft(
+    client_factory, classifier_says, repository
+) -> None:
+    client_factory(classifier_says("order"), responder=responder_says("Your parcel is with DHL."))
+
+    _, done = _drain(ResolveRequest(ticket="Where is my order 1042?"))
+
+    assert done.result.reply == "Your parcel is with DHL."

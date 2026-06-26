@@ -58,6 +58,8 @@ class FakeChatModel:
         self.prompts: list[str] = []
         self.tokens_in = tokens_in
         self.tokens_out = tokens_out
+        #: Repeated once the script runs out, so a re-entered node keeps behaving the same way.
+        self.last = responses[-1] if responses else ""
 
     @property
     def call_count(self) -> int:
@@ -65,11 +67,9 @@ class FakeChatModel:
 
     def invoke(self, prompt: Any, **_: Any) -> FakeMessage:
         self.prompts.append(str(prompt))
-        content = self.responses.pop(0) if self.responses else self.responses_exhausted()
-        return FakeMessage(content, self.tokens_in, self.tokens_out)
-
-    def responses_exhausted(self) -> str:
-        return json.dumps({"category": "order", "rationale": "fallback"})
+        if self.responses:
+            self.last = self.responses.pop(0)
+        return FakeMessage(self.last, self.tokens_in, self.tokens_out)
 
 
 @pytest.fixture
@@ -80,6 +80,13 @@ def classifier_says() -> Callable[..., FakeChatModel]:
         return FakeChatModel(json.dumps({"category": category, "rationale": rationale}))
 
     return _factory
+
+
+DEFAULT_DRAFT = "Your order is on its way and the tracking number is in your account."
+
+
+def responder_says(draft: str = DEFAULT_DRAFT, **kwargs: Any) -> FakeChatModel:
+    return FakeChatModel(json.dumps({"draft": draft}), **kwargs)
 
 
 @pytest.fixture
@@ -145,17 +152,23 @@ def researcher_calling(*turns: list[dict[str, Any]], **kwargs: Any) -> FakeToolC
 def client_factory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Callable[..., FakeChatModel]:
-    """Make the runner use the given fakes instead of real provider clients."""
+    """Make the runner use the given fakes instead of real provider clients.
+
+    Nodes without an explicit fake get a silent default that reports no tokens, so token
+    assertions stay exact as nodes are added to the graph.
+    """
     from deskfleet.runner import run as runner_module
+
+    def _default(node: str) -> Any:
+        if node == "responder":
+            return responder_says(tokens_in=0, tokens_out=0)
+        return researcher_calling(answer="no tools were needed")
 
     def _install(model: Any, **per_node: Any) -> Any:
         clients: dict[str, Any] = {"classifier": model, **per_node}
 
         def build_clients(_req: Any, _creds: Any) -> dict[str, Any]:
-            return {
-                node: clients.get(node) or researcher_calling(answer="no tools were needed")
-                for node in runner_module.NODES
-            }
+            return {node: clients.get(node) or _default(node) for node in runner_module.NODES}
 
         monkeypatch.setattr(runner_module, "_build_clients", build_clients)
         return model
