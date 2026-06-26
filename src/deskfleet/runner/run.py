@@ -10,6 +10,8 @@ import uuid
 from collections.abc import Iterator
 from typing import Any
 
+from langgraph.errors import GraphRecursionError
+
 from deskfleet.agents.schemas import Category, Decision, EscalationReason, RefusalReason, ToolCall
 from deskfleet.config import constants, get_logger
 from deskfleet.graph.build import build_graph, invocation_config
@@ -39,7 +41,7 @@ from deskfleet.store import TicketRow, ToolCallRow, write_ticket, write_tool_cal
 
 logger = get_logger(__name__)
 
-NODES = ("classifier", "researcher", "responder")
+NODES = ("classifier", "researcher", "responder", "reviewer")
 
 
 class _Usage:
@@ -84,7 +86,8 @@ def _escalation(
         category=state["category"],
         tool_calls=state["tool_calls"],
         escalation_reason=reason.value,
-        escalation_detail="the assistant could not draft a reply it was willing to send",
+        escalation_detail=state["escalation_detail"]
+        or "the assistant could not draft a reply it was willing to send",
         latency_ms=latency_ms,
     )
 
@@ -159,23 +162,36 @@ def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
         graph = build_graph(_build_clients(req, creds), on_usage=usage.add)
         node_started = time.perf_counter()
         reported_calls = 0
-        for update in graph.stream(
-            state, config=invocation_config(ticket_id), stream_mode="updates"
-        ):
-            for node, node_state in update.items():
-                observe_node(node, time.perf_counter() - node_started)
-                node_started = time.perf_counter()
-                state = {**state, **node_state}
-                for call in state["tool_calls"][reported_calls:]:
-                    observe_tool_call(call.name, call.ok, call.rejected)
-                    yield EventTool(
-                        name=call.name,
-                        ok=call.ok,
-                        latency_ms=call.latency_ms,
-                        rejected=call.rejected,
+        try:
+            for update in graph.stream(
+                state, config=invocation_config(ticket_id), stream_mode="updates"
+            ):
+                for node, node_state in update.items():
+                    observe_node(node, time.perf_counter() - node_started)
+                    node_started = time.perf_counter()
+                    state = {**state, **node_state}
+                    for call in state["tool_calls"][reported_calls:]:
+                        observe_tool_call(call.name, call.ok, call.rejected)
+                        yield EventTool(
+                            name=call.name,
+                            ok=call.ok,
+                            latency_ms=call.latency_ms,
+                            rejected=call.rejected,
+                        )
+                    reported_calls = len(state["tool_calls"])
+                    yield EventNode(
+                        node=node, status="end", data={"category": state.get("category")}
                     )
-                reported_calls = len(state["tool_calls"])
-                yield EventNode(node=node, status="end", data={"category": state.get("category")})
+        except GraphRecursionError:
+            # The second safeguard. Reaching here means the explicit stop condition is wrong;
+            # the run still has to end as a graded escalation rather than a 500.
+            logger.error("graph_recursion_limit", extra={"ticket_id": ticket_id})
+            state = {
+                **state,
+                "decision": Decision.ESCALATE,
+                "escalation_reason": EscalationReason.MAX_ITERS_EXHAUSTED,
+                "escalation_detail": "the review loop did not settle within its step limit",
+            }
 
     _persist_tool_calls(ticket_id, state["tool_calls"])
 
@@ -187,11 +203,10 @@ def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
             elapsed_ms(),
         )
         observe_refusal(RefusalReason.OUT_OF_SCOPE.value)
-    elif not state["draft"]:
-        # No draft means the Responder could not write one. S-05 refines the assembly; the
-        # decision itself belongs here because only the runner terminates a run.
-        result = _escalation(ticket_id, state, EscalationReason.NO_FACTS_FOUND, elapsed_ms())
-        observe_escalation(EscalationReason.NO_FACTS_FOUND.value)
+    elif state["decision"] == Decision.ESCALATE or not state["draft"]:
+        reason = state["escalation_reason"] or EscalationReason.NO_FACTS_FOUND
+        result = _escalation(ticket_id, state, reason, elapsed_ms())
+        observe_escalation(reason.value)
     else:
         reply = scan_output(state["draft"]).clean_text
         result = TicketResult(

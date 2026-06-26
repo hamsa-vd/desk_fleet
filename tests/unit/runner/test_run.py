@@ -91,7 +91,7 @@ def test_the_event_stream_reports_each_node_then_exactly_one_done(
     events, _ = _drain(ResolveRequest(ticket="Where is my order 1042?"))
 
     node_events = [e for e in events if isinstance(e, EventNode)]
-    assert [e.node for e in node_events] == ["classifier", "researcher", "responder"]
+    assert [e.node for e in node_events] == ["classifier", "researcher", "responder", "reviewer"]
     assert sum(isinstance(e, EventDone) for e in events) == 1
 
 

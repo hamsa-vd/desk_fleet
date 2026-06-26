@@ -11,6 +11,7 @@ from prometheus_client import CollectorRegistry
 from deskfleet.config import Settings, get_settings
 from deskfleet.observability import use_registry
 from deskfleet.store import InMemoryRepository
+from deskfleet.tools.impl import get_json as _ORIGINAL_GET_JSON
 
 # Every var the settings object reads, so a stray developer .env or shell export
 # cannot change what a unit test sees.
@@ -89,6 +90,25 @@ def responder_says(draft: str = DEFAULT_DRAFT, **kwargs: Any) -> FakeChatModel:
     return FakeChatModel(json.dumps({"draft": draft}), **kwargs)
 
 
+def reviewer_says(
+    approved: bool = True,
+    *,
+    grounded: bool = True,
+    policy_ok: bool = True,
+    score: float = 9.0,
+    reasons: list[str] | None = None,
+    **kwargs: Any,
+) -> FakeChatModel:
+    verdict = {
+        "approved": approved,
+        "grounded": grounded,
+        "policy_ok": policy_ok,
+        "score": score,
+        "reasons": reasons or [],
+    }
+    return FakeChatModel(json.dumps(verdict), **kwargs)
+
+
 @pytest.fixture
 def repository(monkeypatch: pytest.MonkeyPatch) -> InMemoryRepository:
     """Swap the store module's write functions for the in-memory double."""
@@ -148,6 +168,16 @@ def researcher_calling(*turns: list[dict[str, Any]], **kwargs: Any) -> FakeToolC
     return FakeToolCallingModel(script=list(turns), **kwargs)
 
 
+CANNED_ORDER = {
+    "order_id": "1042",
+    "status": "shipped",
+    "eta": "2026-07-29",
+    "total": 24.99,
+    "currency": "GBP",
+    "items": [],
+}
+
+
 @pytest.fixture
 def client_factory(
     monkeypatch: pytest.MonkeyPatch,
@@ -158,11 +188,19 @@ def client_factory(
     assertions stay exact as nodes are added to the graph.
     """
     from deskfleet.runner import run as runner_module
+    from deskfleet.tools import impl as tools_impl
+    from deskfleet.tools.http_client import HttpOk
 
     def _default(node: str) -> Any:
         if node == "responder":
             return responder_says(tokens_in=0, tokens_out=0)
-        return researcher_calling(answer="no tools were needed")
+        if node == "reviewer":
+            return reviewer_says(tokens_in=0, tokens_out=0)
+        # The Reviewer escalates when no facts were found, so the default run must find one.
+        return researcher_calling(
+            [{"name": "get_order_status", "args": {"order_id": "1042"}}],
+            answer="the order was found",
+        )
 
     def _install(model: Any, **per_node: Any) -> Any:
         clients: dict[str, Any] = {"classifier": model, **per_node}
@@ -171,6 +209,10 @@ def client_factory(
             return {node: clients.get(node) or _default(node) for node in runner_module.NODES}
 
         monkeypatch.setattr(runner_module, "_build_clients", build_clients)
+        if tools_impl.get_json is _ORIGINAL_GET_JSON:
+            monkeypatch.setattr(
+                tools_impl, "get_json", lambda url, **_: HttpOk(data=CANNED_ORDER, status=200)
+            )
         return model
 
     return _install
