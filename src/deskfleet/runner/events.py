@@ -28,6 +28,8 @@ class TicketResult(BaseModel):
     #: Carries the terminal reason for both ESCALATE and REFUSE.
     escalation_reason: str | None = None
     escalation_detail: str | None = None
+    #: On ESCALATE the draft the reviewer would not approve, so a human has somewhere to start.
+    best_draft: str | None = None
     langsmith_trace_url: str | None = None
     latency_ms: int = 0
     tokens_in: int = 0

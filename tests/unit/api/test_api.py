@@ -40,6 +40,7 @@ def test_resolve_returns_every_result_field(api: TestClient) -> None:
         "tool_calls",
         "escalation_reason",
         "escalation_detail",
+        "best_draft",
         "langsmith_trace_url",
         "latency_ms",
         "tokens_in",

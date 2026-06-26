@@ -15,7 +15,7 @@ from langgraph.errors import GraphRecursionError
 from deskfleet.agents.schemas import Category, Decision, EscalationReason, RefusalReason, ToolCall
 from deskfleet.config import constants, get_logger
 from deskfleet.graph.build import build_graph, invocation_config
-from deskfleet.graph.state import initial_state
+from deskfleet.graph.state import TicketState, initial_state
 from deskfleet.guardrails import log_blocked, scan_input, scan_output
 from deskfleet.models import Credentials, build_client, resolve
 from deskfleet.observability import (
@@ -59,6 +59,24 @@ def _build_clients(req: ResolveRequest, creds: Credentials) -> dict[str, Any]:
     return {node: build_client(resolve(node, overrides.get(node), creds)) for node in NODES}
 
 
+def _node_data(node: str, state: TicketState) -> dict:
+    """What a watcher needs to see that a node did something, without leaking the draft."""
+    category = state.get("category")
+    common = {"category": category.value if category else None}
+    if node == "researcher":
+        return {**common, "facts": [fact.key for fact in state.get("facts") or []]}
+    if node == "responder":
+        return {**common, "iterations": state.get("iterations", 0)}
+    if node == "reviewer":
+        decision = state.get("decision")
+        return {
+            **common,
+            "decision": decision.value if decision else None,
+            "review_notes": state.get("review_notes") or [],
+        }
+    return common
+
+
 def _model_id(req: ResolveRequest, node: str) -> str:
     selection = (req.models or {}).get(node)
     return selection.model_id if selection else constants.DEFAULT_MODEL_ID
@@ -87,6 +105,7 @@ def _escalation(
         tool_calls=state["tool_calls"],
         escalation_reason=reason.value,
         escalation_detail=state["escalation_detail"] or UNKNOWN_DETAIL,
+        best_draft=state["best_draft"] or state["draft"] or None,
         latency_ms=latency_ms,
     )
 
@@ -178,9 +197,7 @@ def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
                             rejected=call.rejected,
                         )
                     reported_calls = len(state["tool_calls"])
-                    yield EventNode(
-                        node=node, status="end", data={"category": state.get("category")}
-                    )
+                    yield EventNode(node=node, status="end", data=_node_data(node, state))
         except GraphRecursionError:
             # The second safeguard. Reaching here means the explicit stop condition is wrong;
             # the run still has to end as a graded escalation rather than a 500.
