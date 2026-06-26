@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Storage
     database_url: SecretStr | None = None
 
+    #: Unset means no outbound notification. The escalations table alone satisfies the requirement.
+    escalation_webhook_url: str | None = None
+
     # Metrics push (deployed only)
     grafana_cloud_prom_url: str | None = None
     grafana_cloud_prom_user: str | None = None

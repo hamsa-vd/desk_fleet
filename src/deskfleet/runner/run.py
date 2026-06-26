@@ -21,7 +21,6 @@ from deskfleet.models import Credentials, build_client, resolve
 from deskfleet.observability import (
     estimate_tokens,
     note_budget_exceeded,
-    observe_escalation,
     observe_node,
     observe_refusal,
     observe_ticket,
@@ -29,6 +28,7 @@ from deskfleet.observability import (
     record_usage,
     traced_run,
 )
+from deskfleet.runner.escalation import UNKNOWN_DETAIL, handle_escalation
 from deskfleet.runner.events import (
     Event,
     EventDone,
@@ -86,8 +86,7 @@ def _escalation(
         category=state["category"],
         tool_calls=state["tool_calls"],
         escalation_reason=reason.value,
-        escalation_detail=state["escalation_detail"]
-        or "the assistant could not draft a reply it was willing to send",
+        escalation_detail=state["escalation_detail"] or UNKNOWN_DETAIL,
         latency_ms=latency_ms,
     )
 
@@ -205,8 +204,14 @@ def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
         observe_refusal(RefusalReason.OUT_OF_SCOPE.value)
     elif state["decision"] == Decision.ESCALATE or not state["draft"]:
         reason = state["escalation_reason"] or EscalationReason.NO_FACTS_FOUND
+        state = {
+            **state,
+            "decision": Decision.ESCALATE,
+            "escalation_reason": reason,
+            "escalation_detail": state["escalation_detail"] or UNKNOWN_DETAIL,
+        }
         result = _escalation(ticket_id, state, reason, elapsed_ms())
-        observe_escalation(reason.value)
+        handle_escalation(state)
     else:
         reply = scan_output(state["draft"]).clean_text
         result = TicketResult(

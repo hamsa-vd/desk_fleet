@@ -142,3 +142,34 @@ def get_json(
         status=last_status,
         attempts=attempts,
     )
+
+
+def post_json(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    timeout_s: float = constants.WEBHOOK_TIMEOUT_S,
+) -> HttpResult:
+    """One-shot POST for outbound notifications. No retries: a missed notice must not slow a run."""
+    safe_url = _safe_url(url)
+    try:
+        response = get_client().post(url, json=payload, timeout=timeout_s)
+    except httpx.TimeoutException:
+        return HttpErr(reason=f"{safe_url} timed out after {timeout_s:g}s", status=None, attempts=1)
+    except httpx.HTTPError as exc:
+        return HttpErr(
+            reason=f"{safe_url} could not be reached ({type(exc).__name__})",
+            status=None,
+            attempts=1,
+        )
+    if not response.is_success:
+        return HttpErr(
+            reason=f"{safe_url} returned HTTP {response.status_code}",
+            status=response.status_code,
+            attempts=1,
+        )
+    try:
+        return HttpOk(data=response.json(), status=response.status_code)
+    except (json.JSONDecodeError, ValueError):
+        # A notification endpoint answering with an empty body is a success, not a failure.
+        return HttpOk(data=None, status=response.status_code)

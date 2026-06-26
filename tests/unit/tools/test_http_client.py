@@ -1,4 +1,5 @@
 import itertools
+import json
 from collections.abc import Callable, Iterable
 
 import httpx
@@ -152,3 +153,64 @@ def test_headers_and_query_never_reach_the_log(
     )
     assert "sk-abc123def456" not in emitted
     assert "leaky" not in emitted
+
+
+def test_post_json_sends_the_payload_and_returns_the_body(
+    mount: Callable[..., list[httpx.Request]],
+) -> None:
+    seen = mount([httpx.Response(200, json={"ok": True})])
+
+    result = http_client.post_json("http://ops.test/hook", {"ticket_id": "t-1"})
+
+    assert isinstance(result, HttpOk)
+    assert json.loads(seen[0].content) == {"ticket_id": "t-1"}
+
+
+def test_post_json_never_retries(mount: Callable[..., list[httpx.Request]]) -> None:
+    """A missed notification must not slow the request that triggered it."""
+    seen = mount([httpx.Response(503)] * 4)
+
+    result = http_client.post_json("http://ops.test/hook", {})
+
+    assert isinstance(result, HttpErr)
+    assert len(seen) == 1
+
+
+def test_post_json_treats_an_empty_body_as_success(
+    mount: Callable[..., list[httpx.Request]],
+) -> None:
+    mount([httpx.Response(204)])
+
+    result = http_client.post_json("http://ops.test/hook", {})
+
+    assert isinstance(result, HttpOk)
+    assert result.data is None
+
+
+def test_post_json_uses_the_short_webhook_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    used: list[float] = []
+
+    class Recording:
+        def post(self, url: str, json: dict, timeout: float) -> httpx.Response:
+            used.append(timeout)
+            return httpx.Response(200, json={}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(http_client, "get_client", Recording)
+
+    http_client.post_json("http://ops.test/hook", {})
+
+    assert used == [constants.WEBHOOK_TIMEOUT_S]
+    assert constants.WEBHOOK_TIMEOUT_S < constants.HTTP_TIMEOUT_S
+
+
+def test_post_json_reports_a_timeout_rather_than_raising(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Hanging:
+        def post(self, url: str, **_: object) -> httpx.Response:
+            raise httpx.ReadTimeout("too slow")
+
+    monkeypatch.setattr(http_client, "get_client", Hanging)
+
+    result = http_client.post_json("http://ops.test/hook", {})
+
+    assert isinstance(result, HttpErr)
+    assert "timed out" in result.reason

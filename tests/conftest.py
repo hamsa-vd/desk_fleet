@@ -112,11 +112,13 @@ def reviewer_says(
 @pytest.fixture
 def repository(monkeypatch: pytest.MonkeyPatch) -> InMemoryRepository:
     """Swap the store module's write functions for the in-memory double."""
+    from deskfleet.runner import escalation as escalation_module
     from deskfleet.runner import run as runner_module
 
     repo = InMemoryRepository()
     monkeypatch.setattr(runner_module, "write_ticket", repo.write_ticket)
     monkeypatch.setattr(runner_module, "write_tool_calls", repo.write_tool_calls)
+    monkeypatch.setattr(escalation_module, "write_escalation", repo.write_escalation)
     return repo
 
 

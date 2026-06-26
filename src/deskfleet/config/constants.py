@@ -18,6 +18,9 @@ HTTP_BACKOFF_FACTOR = 2.0
 HTTP_BACKOFF_TOTAL_CEILING_S = 8.0
 HTTP_RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
+# Outbound escalation notices are best-effort, so they get a much shorter leash than tool calls.
+WEBHOOK_TIMEOUT_S = 3.0
+
 LLM_TIMEOUT_S = 60.0
 
 DEFAULT_PROVIDER_ID = "openai"
