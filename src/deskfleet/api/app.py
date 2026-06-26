@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from deskfleet.api import ops, resolve
+from deskfleet.api import models_routes, ops, resolve
 from deskfleet.config import configure_logging, get_logger, get_settings
 from deskfleet.observability import metrics_middleware, setup_tracing
 from deskfleet.store import migrate
@@ -35,6 +35,7 @@ def create_app() -> FastAPI:
     metrics_middleware(application)
     application.include_router(ops.router)
     application.include_router(resolve.router)
+    application.include_router(models_routes.router)
 
     @application.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
