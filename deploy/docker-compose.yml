@@ -1,0 +1,76 @@
+# One command brings up the whole local stack:
+#   docker compose -f deploy/docker-compose.yml up --build
+# DATABASE_URL is the one thing this stack cannot provide itself — Neon is external. Without it
+# the service still runs; audit writes are logged and dropped.
+
+name: deskfleet
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      ORDER_API_BASE_URL: http://mockapi:8081
+      PRODUCT_API_BASE_URL: http://mockapi:8081
+      DATABASE_URL: ${DATABASE_URL:-}
+      API_KEY: ${API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      mockapi:
+        condition: service_healthy
+
+  mockapi:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.mockapi
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: 8081
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    ports:
+      - "9090:9090"
+    # The entrypoint appends remote_write only when the three GRAFANA_CLOUD_* vars are set.
+    entrypoint: ["/bin/sh", "/etc/prometheus/entrypoint.sh"]
+    environment:
+      GRAFANA_CLOUD_PROM_URL: ${GRAFANA_CLOUD_PROM_URL:-}
+      GRAFANA_CLOUD_PROM_USER: ${GRAFANA_CLOUD_PROM_USER:-}
+      GRAFANA_CLOUD_PROM_KEY: ${GRAFANA_CLOUD_PROM_KEY:-}
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./prometheus-entrypoint.sh:/etc/prometheus/entrypoint.sh:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+      - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

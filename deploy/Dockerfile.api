@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+# Build context is the repo root: docker build -f deploy/Dockerfile.api .
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
+
+WORKDIR /build
+
+# Dependencies resolve from pyproject.toml alone, so a source edit never invalidates this layer.
+COPY pyproject.toml ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --no-install-project
+
+FROM python:3.12-slim-bookworm AS runtime
+
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src \
+    PORT=8080
+
+RUN useradd --create-home --uid 10001 deskfleet
+
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY --chown=deskfleet:deskfleet src ./src
+COPY --chown=deskfleet:deskfleet policy.md ./policy.md
+
+USER deskfleet
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
+    CMD python -c "import os,urllib.request;urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('PORT','8080')}/health\").read()"
+
+# Cloud Run injects $PORT and only ever reaches the container on 0.0.0.0.
+CMD ["sh", "-c", "exec uvicorn deskfleet.api.app:app --host 0.0.0.0 --port ${PORT:-8080}"]

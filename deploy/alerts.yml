@@ -1,0 +1,44 @@
+# Symptom-based alerts only. CPU and memory are causes, not symptoms; alerting on them is how
+# alert fatigue starts (M2 §4, NFR-008).
+groups:
+  - name: deskfleet
+    rules:
+      - alert: DeskFleetTailLatencyHigh
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(deskfleet_ticket_latency_seconds_bucket[5m])) by (le)) > 30
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: P99 ticket latency above 30s for ten minutes
+          description: Users are watching a spinner. Check provider latency and the review loop.
+
+      - alert: DeskFleetBudgetExceeded
+        expr: increase(deskfleet_budget_exceeded_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Tickets are exceeding the soft token budget
+          description: Spend per ticket is above plan. Check prompt sizes and the review loop count.
+
+      - alert: DeskFleetEscalationRateHigh
+        expr: >
+          sum(rate(deskfleet_escalations_total[15m]))
+            / clamp_min(sum(rate(deskfleet_tickets_total[15m])), 0.0001) > 0.5
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: More than half of tickets are escalating
+          description: The crew is handing off work it used to resolve. Check tools and the policy.
+
+      - alert: DeskFleetApiDown
+        expr: up{job="deskfleet-api"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: The DeskFleet API is not being scraped
+          description: No successful scrape for two minutes.

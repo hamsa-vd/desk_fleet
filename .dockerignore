@@ -1,0 +1,17 @@
+# The build context is the repo root; everything here would only slow builds or leak into images.
+.ai/
+.git/
+.github/
+.venv/
+venv/
+tests/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+.env
+.env.*
+!.env.example
+*.md
+!policy.md
+deploy/
