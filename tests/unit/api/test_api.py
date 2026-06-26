@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -81,14 +83,15 @@ def test_a_byok_key_bypasses_the_shared_secret(
 ) -> None:
     monkeypatch.setenv("API_KEY", "shared-secret-abc")
     get_settings.cache_clear()
-    client_factory(classifier_says("order"))
     captured: dict = {}
 
     from deskfleet.runner import run as runner_module
+    from tests.conftest import researcher_calling
 
     def spy_build_client(resolved):
         captured["key"] = resolved.api_key.get_secret_value()
-        return classifier_says("order")
+        # Answers the Classifier and the Researcher alike: valid JSON, no tool calls.
+        return researcher_calling(answer=json.dumps({"category": "order", "rationale": "x"}))
 
     monkeypatch.setattr(runner_module, "build_client", spy_build_client)
     api = TestClient(create_app())

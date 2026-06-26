@@ -182,6 +182,93 @@ def langchain_tools() -> list[BaseTool]:
 
 
 def facts_from(call: ToolCall) -> list[Fact]:
+    """Granular facts, one per claimable field.
+
+    S-04's Reviewer grounds individual draft claims against `Fact.value`, so a single fact
+    holding a whole summary would ground everything or nothing.
+    """
     if call.rejected or not call.ok:
         return []
-    return [Fact(source=call.name, key=f"{call.name}.result", value=call.result_summary)]
+    extract = _EXTRACTORS.get(call.name)
+    fields = extract(call.result_summary) if extract else {}
+    prefix = _FACT_PREFIXES.get(call.name, call.name)
+    if not fields:
+        return [Fact(source=call.name, key=f"{call.name}.result", value=call.result_summary)]
+    return [
+        Fact(source=call.name, key=f"{prefix}.{name}", value=value)
+        for name, value in fields.items()
+    ]
+
+
+_FACT_PREFIXES = {
+    "get_order_status": "order",
+    "get_product": "product",
+    "search_products": "search",
+}
+
+
+def _order_fields(summary: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for phrase in summary.split("; "):
+        if phrase.startswith("order ") and " is " in phrase:
+            fields["id"], _, fields["status"] = phrase[len("order ") :].partition(" is ")
+        elif phrase == "no eta on record":
+            fields["eta"] = "none on record"
+        elif phrase.startswith("refunded "):
+            when, _, amount = phrase[len("refunded ") :].partition(" for ")
+            fields["refunded_at"] = when
+            fields["refund_amount"] = amount
+        elif phrase.startswith("delay reason: "):
+            fields["delay_reason"] = phrase[len("delay reason: ") :]
+        else:
+            for label, name in _ORDER_LABELS.items():
+                if phrase.startswith(label):
+                    fields[name] = phrase[len(label) :]
+                    break
+    return fields
+
+
+_ORDER_LABELS = {
+    "placed ": "placed_at",
+    "delivered ": "delivered_at",
+    "eta ": "eta",
+    "carrier ": "carrier",
+    "tracking ": "tracking",
+    "total ": "total",
+    "items: ": "items",
+}
+
+
+def _product_fields(summary: str) -> dict[str, str]:
+    head, _, specs = summary.partition(". Specs: ")
+    head, _, description = head.partition(". Description: ")
+    identifier, _, rest = head.partition(": ")
+    title, _, attributes = rest.partition(" — ")
+    fields = {"id": identifier, "title": title}
+    labels = ("price", "category", "availability")
+    for name, value in zip(labels, attributes.split(", "), strict=False):
+        fields[name] = value
+    if description:
+        fields["description"] = description
+    if specs:
+        fields["specs"] = specs
+    return fields
+
+
+def _search_fields(summary: str) -> dict[str, str]:
+    if summary.startswith("no products matched "):
+        return {"match_count": "0", "query": summary[len("no products matched ") :]}
+    header, _, matches = summary.partition(": ")
+    count, _, rest = header.partition(" product(s) matched ")
+    fields = {"match_count": count, "query": rest.removesuffix(" (showing the first 5)")}
+    for index, line in enumerate(matches.split(" | "), start=1):
+        if line:
+            fields[f"result.{index}"] = line
+    return fields
+
+
+_EXTRACTORS: dict[str, Callable[[str], dict[str, str]]] = {
+    "get_order_status": _order_fields,
+    "get_product": _product_fields,
+    "search_products": _search_fields,
+}

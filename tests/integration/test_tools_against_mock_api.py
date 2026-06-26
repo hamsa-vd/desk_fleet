@@ -36,3 +36,17 @@ def test_search_against_the_live_mock() -> None:
 
     assert call.ok
     assert "matched" in call.result_summary
+
+
+def test_the_researcher_gathers_order_facts_from_the_live_mock() -> None:
+    """The node's own path — executor, dispatch, fact extraction — over real HTTP."""
+    from deskfleet.agents.researcher import researcher_node
+    from deskfleet.graph.state import initial_state
+    from tests.conftest import researcher_calling
+
+    model = researcher_calling([{"name": "get_order_status", "args": {"order_id": "1042"}}])
+
+    state = researcher_node(model)(initial_state("t-int", "Where is my order 1042?", "1042"))
+
+    assert [call.name for call in state["tool_calls"]] == ["get_order_status"]
+    assert any(fact.key == "order.status" for fact in state["facts"])

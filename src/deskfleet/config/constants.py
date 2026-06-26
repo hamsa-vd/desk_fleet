@@ -4,6 +4,10 @@ MAX_ITERS = 3
 RECURSION_LIMIT = 8
 TOKEN_BUDGET_PER_TICKET = 20_000
 
+# Bounds tool steps inside the Researcher's executor. Distinct from MAX_ITERS, which bounds the
+# Responder↔Reviewer loop: an unbounded executor is the runaway loop at the tool layer.
+RESEARCHER_MAX_TOOL_ITERATIONS = 5
+
 # M6 S52's retry schedule (30s → 60s, 5 attempts) is sized for a background worker. These calls
 # happen inside a synchronous POST /resolve that a user is waiting on, so the pattern is kept and
 # the values shrunk: the ceiling below is the worst case a caller can be made to wait on retries.

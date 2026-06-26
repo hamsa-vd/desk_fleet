@@ -1,8 +1,11 @@
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import pytest
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 from prometheus_client import CollectorRegistry
 
 from deskfleet.config import Settings, get_settings
@@ -86,18 +89,75 @@ def repository(monkeypatch: pytest.MonkeyPatch) -> InMemoryRepository:
 
     repo = InMemoryRepository()
     monkeypatch.setattr(runner_module, "write_ticket", repo.write_ticket)
+    monkeypatch.setattr(runner_module, "write_tool_calls", repo.write_tool_calls)
     return repo
+
+
+class FakeToolCallingModel(BaseChatModel):
+    """A chat model scripted to request specific tool calls, then to answer.
+
+    `bind_tools` is a no-op: the script decides what is requested, which is what makes the
+    Researcher's dispatch and rejection paths testable without a provider.
+    """
+
+    script: list[list[dict[str, Any]]] = []
+    answer: str = "here is what I found"
+    always: bool = False
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+    turns: int = 0
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-tool-calling"
+
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> "FakeToolCallingModel":
+        return self
+
+    def _generate(self, messages: list[Any], stop: Any = None, **kwargs: Any) -> ChatResult:
+        turn = self.turns
+        self.turns += 1
+        if self.always and self.script:
+            requested = self.script[turn % len(self.script)]
+        else:
+            requested = self.script[turn] if turn < len(self.script) else []
+        message = AIMessage(
+            content="" if requested else self.answer,
+            tool_calls=[
+                {"name": call["name"], "args": call["args"], "id": f"call-{turn}-{index}"}
+                for index, call in enumerate(requested)
+            ],
+            usage_metadata={
+                "input_tokens": self.tokens_in,
+                "output_tokens": self.tokens_out,
+                "total_tokens": self.tokens_in + self.tokens_out,
+            },
+        )
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+def researcher_calling(*turns: list[dict[str, Any]], **kwargs: Any) -> FakeToolCallingModel:
+    return FakeToolCallingModel(script=list(turns), **kwargs)
 
 
 @pytest.fixture
 def client_factory(
     monkeypatch: pytest.MonkeyPatch,
-) -> Callable[[FakeChatModel], Iterator[None]]:
-    """Make the runner build the given fake chat model instead of a real provider client."""
+) -> Callable[..., FakeChatModel]:
+    """Make the runner use the given fakes instead of real provider clients."""
     from deskfleet.runner import run as runner_module
 
-    def _install(model: FakeChatModel) -> FakeChatModel:
-        monkeypatch.setattr(runner_module, "build_client", lambda _resolved: model)
+    def _install(model: Any, **per_node: Any) -> Any:
+        clients: dict[str, Any] = {"classifier": model, **per_node}
+
+        def build_clients(_req: Any, _creds: Any) -> dict[str, Any]:
+            return {
+                node: clients.get(node) or researcher_calling(answer="no tools were needed")
+                for node in runner_module.NODES
+            }
+
+        monkeypatch.setattr(runner_module, "_build_clients", build_clients)
         return model
 
     return _install

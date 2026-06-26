@@ -4,12 +4,13 @@ It is a generator by design. /resolve drains it and returns the final result; S-
 re-emits every event. Collapsing it to a plain function would make that transport expensive.
 """
 
+import json
 import time
 import uuid
 from collections.abc import Iterator
 from typing import Any
 
-from deskfleet.agents.schemas import Category, Decision, RefusalReason
+from deskfleet.agents.schemas import Category, Decision, RefusalReason, ToolCall
 from deskfleet.config import constants, get_logger
 from deskfleet.graph.build import build_graph, invocation_config
 from deskfleet.graph.state import initial_state
@@ -21,15 +22,23 @@ from deskfleet.observability import (
     observe_node,
     observe_refusal,
     observe_ticket,
+    observe_tool_call,
     record_usage,
     traced_run,
 )
-from deskfleet.runner.events import Event, EventDone, EventNode, ResolveRequest, TicketResult
-from deskfleet.store import TicketRow, write_ticket
+from deskfleet.runner.events import (
+    Event,
+    EventDone,
+    EventNode,
+    EventTool,
+    ResolveRequest,
+    TicketResult,
+)
+from deskfleet.store import TicketRow, ToolCallRow, write_ticket, write_tool_calls
 
 logger = get_logger(__name__)
 
-NODES = ("classifier",)
+NODES = ("classifier", "researcher")
 
 #: TEMPORARY. The Responder (S-03) replaces this with a real drafted reply.
 PLACEHOLDER_REPLY = (
@@ -86,6 +95,23 @@ def _persist(result: TicketResult, redacted_body: str) -> None:
     )
 
 
+def _persist_tool_calls(ticket_id: str, calls: list[ToolCall]) -> None:
+    write_tool_calls(
+        [
+            ToolCallRow(
+                ticket_id=ticket_id,
+                name=call.name,
+                args_json=json.dumps(call.args),
+                ok=call.ok,
+                rejected=call.rejected,
+                result_summary=call.result_summary,
+                latency_ms=call.latency_ms,
+            )
+            for call in calls
+        ]
+    )
+
+
 def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
     ticket_id = str(uuid.uuid4())
     started = time.perf_counter()
@@ -121,6 +147,7 @@ def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
     with traced_run(ticket_id) as run:
         graph = build_graph(_build_clients(req, creds), on_usage=usage.add)
         node_started = time.perf_counter()
+        reported_calls = 0
         for update in graph.stream(
             state, config=invocation_config(ticket_id), stream_mode="updates"
         ):
@@ -128,7 +155,18 @@ def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
                 observe_node(node, time.perf_counter() - node_started)
                 node_started = time.perf_counter()
                 state = {**state, **node_state}
+                for call in state["tool_calls"][reported_calls:]:
+                    observe_tool_call(call.name, call.ok, call.rejected)
+                    yield EventTool(
+                        name=call.name,
+                        ok=call.ok,
+                        latency_ms=call.latency_ms,
+                        rejected=call.rejected,
+                    )
+                reported_calls = len(state["tool_calls"])
                 yield EventNode(node=node, status="end", data={"category": state.get("category")})
+
+    _persist_tool_calls(ticket_id, state["tool_calls"])
 
     if state["category"] == Category.OTHER:
         result = _refusal(

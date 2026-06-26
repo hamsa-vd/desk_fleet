@@ -165,10 +165,55 @@ def test_facts_are_produced_only_for_successful_calls(upstream) -> None:
 
     facts = facts_from(ok_call)
 
-    assert len(facts) == 1
-    assert facts[0].source == "get_order_status"
-    assert facts[0].value == ok_call.result_summary
+    assert all(fact.source == "get_order_status" for fact in facts)
     assert facts_from(rejected) == []
+
+
+def test_order_facts_are_granular_enough_to_ground_one_claim(upstream) -> None:
+    """S-04's Reviewer grounds claims field by field, so one fact per field is the contract."""
+    upstream(HttpOk(data=ORDER_1042, status=200))
+
+    call = dispatch("get_order_status", {"order_id": "1042"})
+    facts = {fact.key: fact.value for fact in facts_from(call)}
+
+    assert facts["order.id"] == "1042"
+    assert facts["order.status"] == "shipped"
+    assert facts["order.eta"] == "2026-07-29"
+    assert facts["order.carrier"] == "DHL"
+    assert facts["order.tracking"] == "JD0002210091827364"
+    assert facts["order.total"] == "24.99 GBP"
+
+
+def test_product_facts_split_the_summary_into_fields(upstream) -> None:
+    upstream(HttpOk(data=PRODUCT_7, status=200))
+
+    call = dispatch("get_product", {"product_id": "7"})
+    facts = {fact.key: fact.value for fact in facts_from(call)}
+
+    assert facts["product.id"] == "7"
+    assert facts["product.title"] == "Aeris Wireless Earbuds"
+    assert facts["product.price"] == "24.99 GBP"
+    assert facts["product.availability"] == "in stock"
+    assert "noise cancellation" in facts["product.description"]
+
+
+def test_search_facts_carry_the_match_count_and_each_result(upstream) -> None:
+    upstream(HttpOk(data={"query": "earbuds", "count": 1, "results": [PRODUCT_7]}, status=200))
+
+    call = dispatch("search_products", {"query": "earbuds"})
+    facts = {fact.key: fact.value for fact in facts_from(call)}
+
+    assert facts["search.match_count"] == "1"
+    assert "Aeris Wireless Earbuds" in facts["search.result.1"]
+
+
+def test_an_empty_search_produces_a_zero_count_fact(upstream) -> None:
+    upstream(HttpOk(data={"query": "zzz", "count": 0, "results": []}, status=200))
+
+    call = dispatch("search_products", {"query": "zzz"})
+    facts = {fact.key: fact.value for fact in facts_from(call)}
+
+    assert facts["search.match_count"] == "0"
 
 
 def test_langchain_tools_mirror_the_registry() -> None:

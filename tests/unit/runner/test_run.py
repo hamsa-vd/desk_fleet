@@ -4,12 +4,29 @@ from deskfleet.agents.schemas import Category, Decision
 from deskfleet.config import constants
 from deskfleet.graph import build as graph_build
 from deskfleet.models import Credentials
-from deskfleet.runner.events import EventDone, EventNode, ResolveRequest
+from deskfleet.runner.events import EventDone, EventNode, EventTool, ResolveRequest
 from deskfleet.runner.run import PLACEHOLDER_REPLY, run_ticket
+from deskfleet.tools import impl
+from deskfleet.tools.http_client import HttpOk
+from tests.conftest import researcher_calling
 
 KEYS = Credentials(server={"openai": "sk-server-000"})
 
+ORDER_1042 = {
+    "order_id": "1042",
+    "status": "shipped",
+    "eta": "2026-07-29",
+    "total": 24.99,
+    "currency": "GBP",
+    "items": [],
+}
+
 pytestmark = pytest.mark.usefixtures("fresh_registry")
+
+
+@pytest.fixture
+def order_upstream(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(impl, "get_json", lambda url, **_: HttpOk(data=ORDER_1042, status=200))
 
 
 def _drain(req: ResolveRequest) -> tuple[list, EventDone]:
@@ -74,7 +91,7 @@ def test_the_event_stream_reports_each_node_then_exactly_one_done(
     events, _ = _drain(ResolveRequest(ticket="Where is my order 1042?"))
 
     node_events = [e for e in events if isinstance(e, EventNode)]
-    assert [e.node for e in node_events] == ["classifier"]
+    assert [e.node for e in node_events] == ["classifier", "researcher"]
     assert sum(isinstance(e, EventDone) for e in events) == 1
 
 
@@ -161,6 +178,73 @@ def test_ticket_metrics_increment_once_per_ticket(
     assert (
         fresh_registry.get_sample_value(
             "deskfleet_tickets_total", {"decision": "resolved", "category": "order"}
+        )
+        == 1
+    )
+
+
+def test_every_tool_invocation_reaches_the_event_stream_and_the_store(
+    client_factory, classifier_says, repository, order_upstream
+) -> None:
+    client_factory(
+        classifier_says("order"),
+        researcher=researcher_calling(
+            [{"name": "get_order_status", "args": {"order_id": "1042"}}],
+            [{"name": "delete_database", "args": {}}],
+        ),
+    )
+
+    events, done = _drain(ResolveRequest(ticket="Where is my order 1042?", order_id="1042"))
+
+    tool_events = [e for e in events if isinstance(e, EventTool)]
+    assert [e.name for e in tool_events] == ["get_order_status", "delete_database"]
+    assert [e.rejected for e in tool_events] == [False, True]
+    assert len(repository.tool_calls) == len(done.result.tool_calls) == 2
+    assert [row.rejected for row in repository.tool_calls] == [False, True]
+
+
+def test_a_tool_event_precedes_the_node_that_produced_it_finishing(
+    client_factory, classifier_says, repository, order_upstream
+) -> None:
+    client_factory(
+        classifier_says("order"),
+        researcher=researcher_calling([{"name": "get_order_status", "args": {"order_id": "1042"}}]),
+    )
+
+    events, _ = _drain(ResolveRequest(ticket="Where is my order 1042?", order_id="1042"))
+    kinds = [type(e).__name__ for e in events]
+
+    assert kinds.index("EventTool") < kinds.index("EventNode", kinds.index("EventTool"))
+
+
+def test_researched_facts_reach_the_result(
+    client_factory, classifier_says, repository, order_upstream
+) -> None:
+    client_factory(
+        classifier_says("order"),
+        researcher=researcher_calling([{"name": "get_order_status", "args": {"order_id": "1042"}}]),
+    )
+
+    _, done = _drain(ResolveRequest(ticket="Where is my order 1042?", order_id="1042"))
+
+    assert done.result.tool_calls[0].name == "get_order_status"
+    assert done.result.tool_calls[0].ok is True
+
+
+def test_a_rejected_call_is_counted_in_the_tool_metric(
+    client_factory, classifier_says, repository, fresh_registry, order_upstream
+) -> None:
+    client_factory(
+        classifier_says("order"),
+        researcher=researcher_calling([{"name": "delete_database", "args": {}}]),
+    )
+
+    _drain(ResolveRequest(ticket="Where is my order 1042?"))
+
+    assert (
+        fresh_registry.get_sample_value(
+            "deskfleet_tool_calls_total",
+            {"tool": "unregistered", "ok": "false", "rejected": "true"},
         )
         == 1
     )
