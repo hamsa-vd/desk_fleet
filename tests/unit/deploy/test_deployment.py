@@ -259,6 +259,66 @@ def test_the_dashboard_provider_points_at_the_mounted_directory() -> None:
     assert provider["providers"][0]["options"]["path"] == "/var/lib/grafana/dashboards"
 
 
+# --- github actions ----------------------------------------------------------------------
+
+
+def test_the_deploy_workflow_gates_deploys_on_tests() -> None:
+    workflow = yaml.load(
+        (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+    assert set(workflow["on"]) == {"push", "pull_request", "workflow_dispatch"}
+    assert workflow["permissions"]["contents"] == "read"
+    assert workflow["jobs"]["deploy"]["needs"] == "validate"
+    assert "workflow_dispatch" in workflow["jobs"]["deploy"]["if"]
+    assert "refs/heads/main" in workflow["jobs"]["deploy"]["if"]
+
+
+def test_the_deploy_workflow_runs_the_expected_steps_in_order() -> None:
+    workflow = yaml.load(
+        (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+    validate_steps = [step["name"] for step in workflow["jobs"]["validate"]["steps"]]
+    deploy_steps = [step["name"] for step in workflow["jobs"]["deploy"]["steps"]]
+
+    assert validate_steps == [
+        "Check out repository",
+        "Set up Python",
+        "Install uv",
+        "Sync environment",
+        "Lint",
+        "Test",
+    ]
+    assert deploy_steps == [
+        "Check out repository",
+        "Authenticate to Google Cloud",
+        "Set up gcloud",
+        "Configure Docker for Artifact Registry",
+        "Build, push, and deploy",
+    ]
+
+
+def test_the_deploy_workflow_uses_the_required_cloud_run_flags() -> None:
+    workflow = yaml.load(
+        (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+    run_script = workflow["jobs"]["deploy"]["steps"][-1]["run"]
+    assert "gcloud run deploy \"${MOCK_SERVICE_NAME}\"" in run_script
+    assert "gcloud run deploy \"${API_SERVICE_NAME}\"" in run_script
+    assert "--allow-unauthenticated" in run_script
+    assert "--min-instances 0" in run_script
+    assert "--timeout 300" in run_script
+    assert "--port 8081" in run_script
+    assert "--port 8080" in run_script
+    assert "docker build -f deploy/Dockerfile.mockapi" in run_script
+    assert "docker build -f deploy/Dockerfile.api" in run_script
+
+
 # --- compose and images ---------------------------------------------------------------------
 
 

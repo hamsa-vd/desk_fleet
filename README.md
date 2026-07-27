@@ -69,6 +69,52 @@ Cloud Run's filesystem is in-memory and per-instance, and the service deploys wi
 lives in Postgres rather than SQLite, and why Prometheus metrics are pushed rather than scraped in
 production.
 
+## Deployment
+
+The GitHub Actions workflow lives in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+It runs:
+
+1. `uv sync --frozen --dev`
+2. `ruff check`
+3. `pytest tests/unit tests/safety tests/prompts`
+4. `docker build` and `docker push` for both service images
+5. `gcloud run deploy` for the mock API first, then the main API
+
+Before using it, create:
+
+1. A GCP project with billing enabled.
+2. An Artifact Registry Docker repository.
+3. A service account for the workflow with `roles/run.admin`, `roles/artifactregistry.writer`, and
+   `roles/iam.serviceAccountUser`.
+4. A GitHub Workload Identity Federation provider that can impersonate that service account.
+
+Required GitHub secrets:
+
+1. `GCP_PROJECT_ID`
+2. `GCP_REGION`
+3. `GCP_ARTIFACT_REGISTRY_REPOSITORY`
+4. `GCP_WORKLOAD_IDENTITY_PROVIDER`
+5. `GCP_SERVICE_ACCOUNT_EMAIL`
+6. `DATABASE_URL`
+7. `OPENAI_API_KEY`
+8. `LANGCHAIN_API_KEY`
+9. `API_KEY`
+10. `GROQ_API_KEY`
+11. `GRAFANA_CLOUD_PROM_URL`
+12. `GRAFANA_CLOUD_PROM_USER`
+13. `GRAFANA_CLOUD_PROM_KEY`
+
+The workflow deploys the mock API first, captures its URL, and then deploys the main service with
+`ORDER_API_BASE_URL` and `PRODUCT_API_BASE_URL` pointed at that mock URL. The Cloud Run flags are:
+
+- `--min-instances 0`
+- `--memory 512Mi` for the mock API
+- `--memory 1Gi` for the main API
+- `--timeout 300`
+- `--allow-unauthenticated`
+- `--port 8081` for the mock API
+- `--port 8080` for the main API
+
 ## Tests
 
 ```bash
