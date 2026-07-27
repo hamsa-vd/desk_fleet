@@ -13,6 +13,12 @@ uv run uvicorn deskfleet.api.app:app --reload --port 8080
 uv run uvicorn mock_api.app:app --port 8081
 ```
 
+Or run the three services together with the built-in dev launcher:
+
+```bash
+uv run deskfleet-dev
+```
+
 ## Running the whole stack
 
 One command brings up the API, the mock vendor API, Prometheus and Grafana:

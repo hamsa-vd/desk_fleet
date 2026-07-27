@@ -23,6 +23,9 @@ dependencies = [
 [project.optional-dependencies]
 ui = ["streamlit>=1.36"]
 
+[project.scripts]
+deskfleet-dev = "deskfleet.dev:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.2",
