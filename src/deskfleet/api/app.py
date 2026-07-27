@@ -22,6 +22,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Tracing must be configured before any LangChain object exists, or it silently does nothing.
     setup_tracing(settings)
     migrate()
+    if settings.api_key is None:
+        # Silent otherwise, and the symptom — tickets resolving on the server's key with no
+        # credential supplied — reads as a bug rather than as the dev-only default it is.
+        logger.warning("api_key_unset_service_is_unguarded")
     logger.info("service_started", extra={"port": settings.port})
     yield
 

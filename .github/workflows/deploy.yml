@@ -7,7 +7,8 @@ on:
 
 concurrency:
   group: deskfleet-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run that is mid-`gcloud run deploy`; a half-applied revision is worse than a queue.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -22,6 +23,8 @@ env:
   SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
   IMAGE_ROOT: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REGISTRY_REPOSITORY }}
+  #: Secret Manager names for the values Cloud Run reads at runtime. Created once, out of band.
+  RUNTIME_SECRETS: DATABASE_URL OPENAI_API_KEY API_KEY LANGCHAIN_API_KEY GROQ_API_KEY GRAFANA_CLOUD_PROM_URL GRAFANA_CLOUD_PROM_USER GRAFANA_CLOUD_PROM_KEY
 
 jobs:
   validate:
@@ -40,11 +43,21 @@ jobs:
       - name: Install uv
         run: python -m pip install --upgrade pip uv
 
+      - name: Restore uv cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-
+
       - name: Sync environment
         run: uv sync --frozen --dev
 
       - name: Lint
         run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
 
       - name: Test
         run: uv run pytest tests/unit tests/safety tests/prompts
@@ -76,7 +89,18 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-      - name: Build, push, and deploy
+      - name: Build and push images
+        run: |
+          set -euo pipefail
+
+          docker build -f deploy/Dockerfile.mockapi -t "${IMAGE_ROOT}/${MOCK_SERVICE_NAME}:${GITHUB_SHA}" .
+          docker push "${IMAGE_ROOT}/${MOCK_SERVICE_NAME}:${GITHUB_SHA}"
+
+          docker build -f deploy/Dockerfile.api -t "${IMAGE_ROOT}/${API_SERVICE_NAME}:${GITHUB_SHA}" .
+          docker push "${IMAGE_ROOT}/${API_SERVICE_NAME}:${GITHUB_SHA}"
+
+      - name: Publish secrets to Secret Manager
+        id: secrets
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -89,20 +113,41 @@ jobs:
         run: |
           set -euo pipefail
 
-          sha="${GITHUB_SHA}"
-          mock_image="${IMAGE_ROOT}/${MOCK_SERVICE_NAME}:${sha}"
-          api_image="${IMAGE_ROOT}/${API_SERVICE_NAME}:${sha}"
+          # Values move over a pipe into --data-file=-, so no secret reaches a command line, an
+          # `env` dump or the Cloud Run revision spec. The secrets themselves are created once by
+          # hand (see the README) so this job needs only secretVersionAdder, never admin.
+          pairs=()
+          for name in ${RUNTIME_SECRETS}; do
+            value="${!name}"
+            if [ -z "${value}" ]; then
+              echo "skipping ${name}: not set as a repository secret"
+              continue
+            fi
+            if ! gcloud secrets describe "${name}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+              echo "::error::Secret Manager has no secret named ${name}. Create it once with:" \
+                   "gcloud secrets create ${name} --project ${PROJECT_ID} --replication-policy automatic"
+              exit 1
+            fi
+            printf '%s' "${value}" |
+              gcloud secrets versions add "${name}" --project "${PROJECT_ID}" --data-file=- >/dev/null
+            echo "published ${name}"
+            pairs+=("${name}=${name}:latest")
+          done
 
-          docker build -f deploy/Dockerfile.mockapi -t "${mock_image}" .
-          docker push "${mock_image}"
+          printf 'set_secrets=%s\n' "$(IFS=,; echo "${pairs[*]}")" >> "${GITHUB_OUTPUT}"
 
-          docker build -f deploy/Dockerfile.api -t "${api_image}" .
-          docker push "${api_image}"
+      - name: Deploy to Cloud Run
+        id: run_deploy
+        env:
+          SET_SECRETS: ${{ steps.secrets.outputs.set_secrets }}
+        run: |
+          set -euo pipefail
 
+          # The mock deploys first so the api's ORDER_API_BASE_URL points at a service that exists.
           gcloud run deploy "${MOCK_SERVICE_NAME}" \
             --project "${PROJECT_ID}" \
             --region "${REGION}" \
-            --image "${mock_image}" \
+            --image "${IMAGE_ROOT}/${MOCK_SERVICE_NAME}:${GITHUB_SHA}" \
             --service-account "${SERVICE_ACCOUNT}" \
             --allow-unauthenticated \
             --port 8081 \
@@ -116,14 +161,48 @@ jobs:
             --region "${REGION}" \
             --format='value(status.url)')"
 
+          # gcloud rejects an empty --set-secrets, so an all-unset configuration must omit the flag
+          # rather than deploy a service that cannot read a single secret.
+          secret_flag=()
+          if [ -n "${SET_SECRETS}" ]; then
+            secret_flag=(--set-secrets "${SET_SECRETS}")
+          fi
+
+          # ^@^ swaps the delimiter off the comma: a DATABASE_URL or URL holding one would
+          # otherwise be read as the start of the next variable.
           gcloud run deploy "${API_SERVICE_NAME}" \
             --project "${PROJECT_ID}" \
             --region "${REGION}" \
-            --image "${api_image}" \
+            --image "${IMAGE_ROOT}/${API_SERVICE_NAME}:${GITHUB_SHA}" \
             --service-account "${SERVICE_ACCOUNT}" \
             --allow-unauthenticated \
             --port 8080 \
             --min-instances 0 \
             --memory 1Gi \
             --timeout 300 \
-            --set-env-vars "ORDER_API_BASE_URL=${mock_url},PRODUCT_API_BASE_URL=${mock_url},DATABASE_URL=${DATABASE_URL},OPENAI_API_KEY=${OPENAI_API_KEY},GROQ_API_KEY=${GROQ_API_KEY},API_KEY=${API_KEY},LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY},LANGCHAIN_TRACING_V2=true,LANGCHAIN_ENDPOINT=https://api.smith.langchain.com,LANGCHAIN_PROJECT=deskfleet,GRAFANA_CLOUD_PROM_URL=${GRAFANA_CLOUD_PROM_URL},GRAFANA_CLOUD_PROM_USER=${GRAFANA_CLOUD_PROM_USER},GRAFANA_CLOUD_PROM_KEY=${GRAFANA_CLOUD_PROM_KEY},LOG_LEVEL=INFO"
+            "${secret_flag[@]}" \
+            --set-env-vars "^@^ORDER_API_BASE_URL=${mock_url}@PRODUCT_API_BASE_URL=${mock_url}@LANGCHAIN_TRACING_V2=true@LANGCHAIN_ENDPOINT=https://api.smith.langchain.com@LANGCHAIN_PROJECT=deskfleet@LOG_LEVEL=INFO"
+
+          api_url="$(gcloud run services describe "${API_SERVICE_NAME}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --format='value(status.url)')"
+          printf 'api_url=%s\n' "${api_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify the deployed revision
+        env:
+          API_URL: ${{ steps.run_deploy.outputs.api_url }}
+        run: |
+          set -euo pipefail
+
+          health="$(curl -sS -o /dev/null -w '%{http_code}' "${API_URL}/health")"
+          echo "GET /health -> ${health}"
+          test "${health}" = "200"
+
+          # With API_KEY set as a secret, an unauthenticated caller must be turned away.
+          unauth="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X POST "${API_URL}/resolve" \
+            -H 'Content-Type: application/json' \
+            -d '{"ticket":"deployment smoke test"}')"
+          echo "POST /resolve without a key -> ${unauth}"
+          test "${unauth}" = "401"

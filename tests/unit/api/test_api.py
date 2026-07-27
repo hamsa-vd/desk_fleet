@@ -107,6 +107,52 @@ def test_a_byok_key_bypasses_the_shared_secret(
     assert captured["key"] == "sk-caller-999"
 
 
+def test_a_byok_header_for_another_provider_does_not_unlock_the_server_key(
+    monkeypatch: pytest.MonkeyPatch, client_factory, classifier_says
+) -> None:
+    """The bypass this closes: any BYOK header satisfied auth, then the server's key paid."""
+    monkeypatch.setenv("API_KEY", "shared-secret-abc")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-server-000")
+    get_settings.cache_clear()
+    api = TestClient(create_app())
+
+    response = api.post(
+        "/resolve",
+        json={"ticket": "Where is my order 1042?"},
+        headers={"X-Custom-Key": "anything-at-all"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_the_shared_secret_still_grants_the_server_key_alongside_a_partial_byok_set(
+    monkeypatch: pytest.MonkeyPatch, client_factory, classifier_says
+) -> None:
+    monkeypatch.setenv("API_KEY", "shared-secret-abc")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-server-000")
+    get_settings.cache_clear()
+    captured: dict = {}
+
+    from deskfleet.runner import run as runner_module
+    from tests.conftest import researcher_calling
+
+    def spy_build_client(resolved):
+        captured["key"] = resolved.api_key.get_secret_value()
+        return researcher_calling(answer=json.dumps({"category": "order", "rationale": "x"}))
+
+    monkeypatch.setattr(runner_module, "build_client", spy_build_client)
+    api = TestClient(create_app())
+
+    response = api.post(
+        "/resolve",
+        json={"ticket": "Where is my order 1042?"},
+        headers={"X-API-Key": "shared-secret-abc", "X-Custom-Key": "anything-at-all"},
+    )
+
+    assert response.status_code == 200
+    assert captured["key"] == "sk-server-000"
+
+
 def test_no_supplied_key_appears_in_the_response_or_the_logs(
     keyed_api: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:

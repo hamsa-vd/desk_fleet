@@ -13,11 +13,23 @@ uv run uvicorn deskfleet.api.app:app --reload --port 8080
 uv run uvicorn mock_api.app:app --port 8081
 ```
 
-Or run the three services together with the built-in dev launcher:
+Or run all three together — mock API, API and the Streamlit UI — with the built-in dev launcher.
+Output is prefixed per service, and the first process to exit stops the other two:
 
 ```bash
 uv run deskfleet-dev
 ```
+
+| Service | URL |
+|---|---|
+| API | http://localhost:8080 |
+| Mock vendor API | http://localhost:8081 |
+| Streamlit UI | http://localhost:8501 |
+
+**Leaving `API_KEY` unset makes the service unguarded** — every request is accepted and billed to
+the server's `OPENAI_API_KEY`. That is the intended local default, and the API logs
+`api_key_unset_service_is_unguarded` at startup to say so. Set `API_KEY` to require the
+`X-API-Key` header, which is what the UI's "Service key" field fills in.
 
 ## Running the whole stack
 
@@ -81,18 +93,36 @@ The GitHub Actions workflow lives in [`.github/workflows/deploy.yml`](.github/wo
 It runs:
 
 1. `uv sync --frozen --dev`
-2. `ruff check`
+2. `ruff check` and `ruff format --check`
 3. `pytest tests/unit tests/safety tests/prompts`
 4. `docker build` and `docker push` for both service images
-5. `gcloud run deploy` for the mock API first, then the main API
+5. a new Secret Manager version for every configured secret
+6. `gcloud run deploy` for the mock API first, then the main API
+7. `GET /health` and an unauthenticated `POST /resolve` against the deployed URL, asserting 200
+   and 401
+
+Steps 4–7 only run on `main` or `workflow_dispatch`, and only after step 3 passes — a failing
+safety test stops the pipeline before any image is built.
 
 Before using it, create:
 
 1. A GCP project with billing enabled.
 2. An Artifact Registry Docker repository.
-3. A service account for the workflow with `roles/run.admin`, `roles/artifactregistry.writer`, and
-   `roles/iam.serviceAccountUser`.
+3. A service account for the workflow with `roles/run.admin`, `roles/artifactregistry.writer`,
+   `roles/iam.serviceAccountUser`, `roles/secretmanager.secretVersionAdder` (to publish new secret
+   versions) and `roles/secretmanager.secretAccessor` (which Cloud Run needs at runtime, since the
+   same account is the service identity). No `roles/editor`, no `roles/owner`, and deliberately not
+   `roles/secretmanager.admin` — the workflow adds versions but never creates or deletes secrets.
 4. A GitHub Workload Identity Federation provider that can impersonate that service account.
+5. One Secret Manager secret per runtime value, created once. The workflow fails with the exact
+   command if one is missing:
+
+   ```bash
+   for name in DATABASE_URL OPENAI_API_KEY API_KEY LANGCHAIN_API_KEY GROQ_API_KEY \
+               GRAFANA_CLOUD_PROM_URL GRAFANA_CLOUD_PROM_USER GRAFANA_CLOUD_PROM_KEY; do
+     gcloud secrets create "$name" --project "$GCP_PROJECT_ID" --replication-policy automatic
+   done
+   ```
 
 Required GitHub secrets:
 
@@ -109,6 +139,13 @@ Required GitHub secrets:
 11. `GRAFANA_CLOUD_PROM_URL`
 12. `GRAFANA_CLOUD_PROM_USER`
 13. `GRAFANA_CLOUD_PROM_KEY`
+
+Secrets 6–13 are never passed to Cloud Run with `--set-env-vars`, which would write them in clear
+into the revision spec for anyone holding `run.viewer`. The workflow pipes each value into
+`gcloud secrets versions add --data-file=-` — so no secret reaches a command line or a log — and the
+service reads them through `--set-secrets NAME=NAME:latest`. Non-secret configuration still goes
+through `--set-env-vars`, using gcloud's `^@^` delimiter so a comma inside a value cannot be read as
+the start of the next variable.
 
 The workflow deploys the mock API first, captures its URL, and then deploys the main service with
 `ORDER_API_BASE_URL` and `PRODUCT_API_BASE_URL` pointed at that mock URL. The Cloud Run flags are:

@@ -22,6 +22,9 @@ _SETTINGS_ENV_VARS = tuple(Settings.model_fields)
 def _clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in _SETTINGS_ENV_VARS:
         monkeypatch.delenv(name.upper(), raising=False)
+    # Deleting the vars is not enough: Settings also reads .env off disk, so a developer's real
+    # DATABASE_URL survives every delenv above and health() then opens a live connection.
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import sys
@@ -18,7 +19,11 @@ class ServiceCommand:
     command: tuple[str, ...]
 
 
+#: Only correct for a source checkout (`src/deskfleet/dev.py`), which is what `uv run` gives you —
+#: the project installs editable. A wheel install would resolve this into site-packages.
 ROOT = Path(__file__).resolve().parents[2]
+
+UI_PORT = "8501"
 
 SERVICES: tuple[ServiceCommand, ...] = (
     ServiceCommand(
@@ -39,7 +44,15 @@ SERVICES: tuple[ServiceCommand, ...] = (
     ),
     ServiceCommand(
         name="streamlit",
-        command=(sys.executable, "-m", "streamlit", "run", "src/streamlit_app/main.py"),
+        command=(
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            "src/streamlit_app/main.py",
+            "--server.port",
+            UI_PORT,
+        ),
     ),
 )
 
@@ -54,9 +67,12 @@ def _prefix_output(name: str, stream: TextIO) -> None:
 
 
 def _spawn(command: ServiceCommand) -> subprocess.Popen[str]:
+    # Children write to a pipe, not a tty, so without this their output arrives in 8 kB bursts.
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     return subprocess.Popen(
         command.command,
         cwd=ROOT,
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -98,18 +114,14 @@ def main() -> int:
             thread.start()
             threads.append(thread)
 
-        while processes:
-            for proc in list(processes):
+        # These services are only useful together, so the first exit — clean or not — ends the lot.
+        while True:
+            for proc in processes:
                 code = proc.poll()
-                if code is None:
-                    continue
-                if code != 0:
+                if code is not None:
                     _terminate(processes)
                     return code
-                _terminate(processes)
-                return code
             time.sleep(0.2)
-        return 0
     finally:
         signal.signal(signal.SIGINT, previous_int)
         signal.signal(signal.SIGTERM, previous_term)

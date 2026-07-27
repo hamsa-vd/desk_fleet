@@ -262,11 +262,35 @@ def test_the_dashboard_provider_points_at_the_mounted_directory() -> None:
 # --- github actions ----------------------------------------------------------------------
 
 
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy.yml"
+
+#: Every secret Cloud Run reads at runtime. Any of these appearing in --set-env-vars would write it
+#: in clear into the revision spec, readable by anyone holding run.viewer.
+RUNTIME_SECRET_NAMES = (
+    "DATABASE_URL",
+    "OPENAI_API_KEY",
+    "API_KEY",
+    "LANGCHAIN_API_KEY",
+    "GROQ_API_KEY",
+    "GRAFANA_CLOUD_PROM_URL",
+    "GRAFANA_CLOUD_PROM_USER",
+    "GRAFANA_CLOUD_PROM_KEY",
+)
+
+
+def _workflow() -> dict:
+    return yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+def _step(job: str, name: str) -> dict:
+    for step in _workflow()["jobs"][job]["steps"]:
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f"no step named {name!r} in job {job!r}")
+
+
 def test_the_deploy_workflow_gates_deploys_on_tests() -> None:
-    workflow = yaml.load(
-        (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8"),
-        Loader=yaml.BaseLoader,
-    )
+    workflow = _workflow()
 
     assert set(workflow["on"]) == {"push", "pull_request", "workflow_dispatch"}
     assert workflow["permissions"]["contents"] == "read"
@@ -275,11 +299,14 @@ def test_the_deploy_workflow_gates_deploys_on_tests() -> None:
     assert "refs/heads/main" in workflow["jobs"]["deploy"]["if"]
 
 
+def test_a_deploy_in_flight_is_never_cancelled_by_a_later_push() -> None:
+    guard = _workflow()["concurrency"]["cancel-in-progress"]
+
+    assert guard == "${{ github.ref != 'refs/heads/main' }}"
+
+
 def test_the_deploy_workflow_runs_the_expected_steps_in_order() -> None:
-    workflow = yaml.load(
-        (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8"),
-        Loader=yaml.BaseLoader,
-    )
+    workflow = _workflow()
 
     validate_steps = [step["name"] for step in workflow["jobs"]["validate"]["steps"]]
     deploy_steps = [step["name"] for step in workflow["jobs"]["deploy"]["steps"]]
@@ -288,8 +315,10 @@ def test_the_deploy_workflow_runs_the_expected_steps_in_order() -> None:
         "Check out repository",
         "Set up Python",
         "Install uv",
+        "Restore uv cache",
         "Sync environment",
         "Lint",
+        "Check formatting",
         "Test",
     ]
     assert deploy_steps == [
@@ -297,26 +326,154 @@ def test_the_deploy_workflow_runs_the_expected_steps_in_order() -> None:
         "Authenticate to Google Cloud",
         "Set up gcloud",
         "Configure Docker for Artifact Registry",
-        "Build, push, and deploy",
+        "Build and push images",
+        "Publish secrets to Secret Manager",
+        "Deploy to Cloud Run",
+        "Verify the deployed revision",
     ]
 
 
+def test_the_validate_job_checks_formatting_as_well_as_lint() -> None:
+    assert "ruff format --check" in _step("validate", "Check formatting")["run"]
+
+
 def test_the_deploy_workflow_uses_the_required_cloud_run_flags() -> None:
-    workflow = yaml.load(
-        (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8"),
-        Loader=yaml.BaseLoader,
+    build = _step("deploy", "Build and push images")["run"]
+    deploy = _step("deploy", "Deploy to Cloud Run")["run"]
+
+    assert 'gcloud run deploy "${MOCK_SERVICE_NAME}"' in deploy
+    assert 'gcloud run deploy "${API_SERVICE_NAME}"' in deploy
+    assert "--allow-unauthenticated" in deploy
+    assert "--min-instances 0" in deploy
+    assert "--timeout 300" in deploy
+    assert "--port 8081" in deploy
+    assert "--port 8080" in deploy
+    assert "docker build -f deploy/Dockerfile.mockapi" in build
+    assert "docker build -f deploy/Dockerfile.api" in build
+
+
+def test_images_are_tagged_with_the_commit_sha() -> None:
+    build = _step("deploy", "Build and push images")["run"]
+
+    assert ":${GITHUB_SHA}" in build
+    assert ":latest" not in build
+
+
+def test_no_runtime_secret_is_passed_as_a_plain_environment_variable() -> None:
+    deploy = _step("deploy", "Deploy to Cloud Run")["run"]
+    env_var_args = re.findall(r"--set-env-vars \"([^\"]*)\"", deploy)
+
+    assert env_var_args
+    assert "--set-secrets" in deploy
+    for argument in env_var_args:
+        for name in RUNTIME_SECRET_NAMES:
+            assert f"{name}=" not in argument
+
+
+def test_env_vars_are_passed_with_a_non_comma_delimiter() -> None:
+    """A comma inside a DATABASE_URL would otherwise start a new variable mid-value."""
+    deploy = _step("deploy", "Deploy to Cloud Run")["run"]
+
+    assert '--set-env-vars "^@^ORDER_API_BASE_URL=' in deploy
+
+
+def test_secret_values_never_reach_a_command_line() -> None:
+    publish = _step("deploy", "Publish secrets to Secret Manager")["run"]
+
+    assert "--data-file=-" in publish
+    assert "--data-file=- " not in publish.replace("--data-file=- >", "")
+    assert "printf '%s' \"${value}\" |" in publish
+
+
+def test_every_runtime_secret_is_declared_for_publication() -> None:
+    declared = _workflow()["env"]["RUNTIME_SECRETS"].split()
+    supplied = _step("deploy", "Publish secrets to Secret Manager")["env"]
+
+    assert set(declared) == set(RUNTIME_SECRET_NAMES)
+    assert set(supplied) == set(RUNTIME_SECRET_NAMES)
+
+
+def run_secrets_step(
+    tmp_path: Path, env: dict[str, str], *, existing: str
+) -> subprocess.CompletedProcess:
+    """Runs the real workflow step with a stub gcloud: publication exercised, not described."""
+    calls = tmp_path / "calls.log"
+    gcloud = tmp_path / "gcloud"
+    gcloud.write_text(
+        "#!/bin/sh\n"
+        f'echo "$@" >> {calls}\n'
+        'if [ "$1" = "secrets" ] && [ "$2" = "describe" ]; then\n'
+        f'  case " {existing} " in *" $3 "*) exit 0;; *) exit 1;; esac\n'
+        "fi\n"
+        "if [ \"$2\" = 'versions' ]; then cat > /dev/null; fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    gcloud.chmod(0o755)
+
+    script = tmp_path / "step.sh"
+    script.write_text(_step("deploy", "Publish secrets to Secret Manager")["run"], encoding="utf-8")
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "PROJECT_ID": "proj",
+            "RUNTIME_SECRETS": " ".join(RUNTIME_SECRET_NAMES),
+            "GITHUB_OUTPUT": str(tmp_path / "output"),
+            **{name: "" for name in RUNTIME_SECRET_NAMES},
+            **env,
+        },
+    )
+    result.calls = calls.read_text(encoding="utf-8") if calls.exists() else ""  # type: ignore[attr-defined]
+    output = tmp_path / "output"
+    result.set_secrets = (  # type: ignore[attr-defined]
+        output.read_text(encoding="utf-8").strip().removeprefix("set_secrets=")
+        if output.exists()
+        else ""
+    )
+    return result
+
+
+def test_only_the_secrets_that_are_configured_are_published(tmp_path: Path) -> None:
+    result = run_secrets_step(
+        tmp_path,
+        {"DATABASE_URL": "postgresql://u:p@h/db", "API_KEY": "shared"},
+        existing=" ".join(RUNTIME_SECRET_NAMES),
     )
 
-    run_script = workflow["jobs"]["deploy"]["steps"][-1]["run"]
-    assert "gcloud run deploy \"${MOCK_SERVICE_NAME}\"" in run_script
-    assert "gcloud run deploy \"${API_SERVICE_NAME}\"" in run_script
-    assert "--allow-unauthenticated" in run_script
-    assert "--min-instances 0" in run_script
-    assert "--timeout 300" in run_script
-    assert "--port 8081" in run_script
-    assert "--port 8080" in run_script
-    assert "docker build -f deploy/Dockerfile.mockapi" in run_script
-    assert "docker build -f deploy/Dockerfile.api" in run_script
+    assert result.returncode == 0
+    assert result.set_secrets == "DATABASE_URL=DATABASE_URL:latest,API_KEY=API_KEY:latest"
+    assert "skipping OPENAI_API_KEY" in result.stdout
+
+
+def test_a_secret_value_never_appears_in_a_gcloud_argument(tmp_path: Path) -> None:
+    result = run_secrets_step(
+        tmp_path,
+        {"DATABASE_URL": "postgresql://user:hunter2@host/db"},
+        existing=" ".join(RUNTIME_SECRET_NAMES),
+    )
+
+    assert "versions add DATABASE_URL" in result.calls
+    assert "hunter2" not in result.calls
+    assert "hunter2" not in result.stdout + result.stderr
+
+
+def test_a_missing_secret_manager_secret_fails_the_deploy_with_the_fix(tmp_path: Path) -> None:
+    result = run_secrets_step(tmp_path, {"API_KEY": "shared"}, existing="")
+
+    assert result.returncode == 1
+    assert "gcloud secrets create API_KEY" in result.stdout
+
+
+def test_the_deployed_revision_is_verified_before_the_job_succeeds() -> None:
+    verify = _step("deploy", "Verify the deployed revision")["run"]
+
+    assert "/health" in verify
+    assert 'test "${health}" = "200"' in verify
+    assert 'test "${unauth}" = "401"' in verify
 
 
 # --- compose and images ---------------------------------------------------------------------

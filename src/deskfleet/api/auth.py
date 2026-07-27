@@ -8,7 +8,7 @@ import secrets
 
 from fastapi import HTTPException, Request, status
 
-from deskfleet.config import get_logger, get_settings
+from deskfleet.config import Settings, get_logger, get_settings
 from deskfleet.models import Credentials, credentials_from_settings
 
 logger = get_logger(__name__)
@@ -32,21 +32,25 @@ def _byok_from(request: Request) -> dict[str, str]:
     return supplied
 
 
+def _holds_shared_secret(request: Request, settings: Settings) -> bool:
+    if settings.api_key is None:
+        return True
+    supplied = request.headers.get(API_KEY_HEADER, "")
+    return bool(supplied) and secrets.compare_digest(supplied, settings.api_key.get_secret_value())
+
+
 def require_credentials(request: Request) -> Credentials:
     settings = get_settings()
     byok = _byok_from(request)
 
-    # A BYOK caller bypasses the shared secret. Whether their key actually covers the models they
-    # selected is settled by the resolver, which raises MissingCredentialError if it does not.
-    if byok:
+    if _holds_shared_secret(request, settings):
         return credentials_from_settings(byok)
 
-    if settings.api_key is None:
-        return credentials_from_settings()
-
-    supplied = request.headers.get(API_KEY_HEADER, "")
-    if supplied and secrets.compare_digest(supplied, settings.api_key.get_secret_value()):
-        return credentials_from_settings()
+    # A BYOK caller bypasses the shared secret, so they get *no* server keys: otherwise a header for
+    # a provider they are not using would let the resolver fall back to the server's key for the
+    # provider they are. Selecting a provider they did not supply now raises MissingCredentialError.
+    if byok:
+        return Credentials(byok=byok)
 
     logger.warning("auth_rejected", extra={"path": request.url.path})
     raise HTTPException(
