@@ -260,7 +260,7 @@ def progress_row_html(label: str, state: str, note: str, detail: str = "") -> st
         f'<span style="flex:none;margin-top:5px;width:11px;height:11px;border-radius:50%;'
         f'background:{dot["fill"]};box-shadow:{dot["ring"]};animation:{dot["anim"]};"></span>'
         f'<span class="df-progress-name" style="min-width:88px;'
-        f'font-family:var(--font-heading);font-size:15px;'
+        f"font-family:var(--font-heading);font-size:15px;"
         f'opacity:{dot["ink"]};">{escape(label)}</span>'
         f'<span style="font-size:13.5px;line-height:1.45;" class="df-quiet">{escape(note)}</span>'
         f"{tooltip}"

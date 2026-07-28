@@ -163,8 +163,9 @@ def test_a_401_explains_how_to_fix_the_credentials() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"detail": "nope"})
 
-    with transport(handler) as client, pytest.raises(
-        AuthenticationError, match="Check the Service key"
+    with (
+        transport(handler) as client,
+        pytest.raises(AuthenticationError, match="Check the Service key"),
     ):
         list(stream_ticket(ServiceConfig(), "hello", client=client))
 
@@ -213,8 +214,9 @@ def test_a_401_fallback_uses_the_same_authentication_message() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"detail": "nope"})
 
-    with transport(handler) as client, pytest.raises(
-        AuthenticationError, match="Check the Service key"
+    with (
+        transport(handler) as client,
+        pytest.raises(AuthenticationError, match="Check the Service key"),
     ):
         resolve_ticket(ServiceConfig(), "hello", client=client)
 
