@@ -36,6 +36,8 @@ def init_state() -> None:
         "running": False,
         "notice": "",
         "error": "",
+        "show_api_key": False,
+        "show_openai_key": False,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -52,15 +54,30 @@ def config_panel() -> ServiceConfig:
             value=os.getenv("API_BASE_URL", "http://localhost:8080"),
             key="base_url",
         )
-        # type="password" keeps the key off the screen after entry; it never leaves session state.
+        # Keys stay in session state and use the reference's compact Show/Hide control.
         api_key = st.text_input(
-            "Service key", type="password", key="api_key", help="Sent as X-API-Key."
+            "Service key",
+            type="default" if st.session_state.show_api_key else "password",
+            key="api_key",
+        )
+        st.button(
+            "Hide" if st.session_state.show_api_key else "Show",
+            key="toggle-api-key",
+            width="content",
+            on_click=toggle_secret,
+            args=("show_api_key",),
         )
         openai_key = st.text_input(
             "Your OpenAI key (optional)",
-            type="password",
+            type="default" if st.session_state.show_openai_key else "password",
             key="openai_key",
-            help="Bring your own key and the service runs the crew on it instead.",
+        )
+        st.button(
+            "Hide" if st.session_state.show_openai_key else "Show",
+            key="toggle-openai-key",
+            width="content",
+            on_click=toggle_secret,
+            args=("show_openai_key",),
         )
 
     with models_tab:
@@ -71,16 +88,55 @@ def config_panel() -> ServiceConfig:
     return model_picker.with_credentials(config, picker_ui.state())
 
 
+def toggle_secret(state_key: str) -> None:
+    st.session_state[state_key] = not st.session_state[state_key]
+
+
 def examples() -> None:
-    st.markdown(theme.section_label_html("Try one"), unsafe_allow_html=True)
-    for row_start in range(0, len(EXAMPLES), 3):
-        for column, example in zip(
-            st.columns(3), EXAMPLES[row_start : row_start + 3], strict=False
-        ):
-            if column.button(example.label, width="stretch", disabled=running()):
-                st.session_state.ticket = example.ticket
-                st.session_state.order_id = example.order_id or ""
-                st.rerun()
+    st.markdown(
+        '<div class="df-composer-label">TRY ONE</div>',
+        unsafe_allow_html=True,
+    )
+    # Pixel widths measured from the supplied reference. The final flexible spacer keeps the pills
+    # grouped at the left edge instead of stretching them into three equal, oversized controls.
+    reference_widths = ((155.4, 120.7, 129.3), (136.6, 113.5, 140.9))
+    content_width = 522
+    with st.container(key="df-presets"):
+        for row_start in range(0, len(EXAMPLES), 3):
+            pill_widths = reference_widths[row_start // 3]
+            trailing_space = content_width - sum(pill_widths) - 20
+            columns = st.columns(
+                [
+                    pill_widths[0],
+                    10,
+                    pill_widths[1],
+                    10,
+                    pill_widths[2],
+                    trailing_space,
+                ],
+                gap=None,
+            )
+            for index, (column, example) in enumerate(
+                zip(
+                    (columns[0], columns[2], columns[4]),
+                    EXAMPLES[row_start : row_start + 3],
+                    strict=False,
+                )
+            ):
+                selected = (
+                    st.session_state.ticket == example.ticket
+                    and st.session_state.order_id == (example.order_id or "")
+                )
+                if column.button(
+                    example.label,
+                    key=f"preset-{row_start + index}",
+                    type="primary" if selected else "secondary",
+                    width="stretch",
+                    disabled=running(),
+                ):
+                    st.session_state.ticket = example.ticket
+                    st.session_state.order_id = example.order_id or ""
+                    st.rerun()
 
 
 def running() -> bool:
@@ -110,11 +166,14 @@ def draw_progress(slot) -> None:
 def draw_tools(slot) -> None:
     rows = st.session_state.tool_rows
     with slot.container():
-        st.markdown(theme.section_label_html("Live tool calls", top=22), unsafe_allow_html=True)
+        st.markdown(theme.divider_html(top=0), unsafe_allow_html=True)
+        st.markdown(
+            theme.section_label_html("Live tool calls", bottom=12), unsafe_allow_html=True
+        )
         if rows:
             st.markdown("".join(theme.tool_line_html(row) for row in rows), unsafe_allow_html=True)
         else:
-            st.caption("No tool calls yet.")
+            st.markdown(theme.quiet_text_html("No tool calls yet."), unsafe_allow_html=True)
 
 
 def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
@@ -129,10 +188,15 @@ def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
             if event.type == "node":
                 node = event.data.get("node", "")
                 if node in st.session_state.node_state:
-                    marker = ACTIVE if event.data.get("status") == "start" else DONE
-                    data = event.data.get("data")
-                    summary = render.node_summary(node, data)
-                    detail = render.node_detail(node, data)
+                    if event.data.get("status") == "start":
+                        marker = ACTIVE
+                        summary = "Working…"
+                        detail = f"{NODE_LABELS[node]} is currently working."
+                    else:
+                        marker = DONE
+                        data = event.data.get("data")
+                        summary = render.node_summary(node, data)
+                        detail = render.node_detail(node, data)
                     st.session_state.node_state[node] = (marker, summary, detail)
                     draw_progress(progress_slot)
             elif event.type == "tool":
@@ -168,44 +232,54 @@ def draw_result() -> None:
     if not result:
         return
 
-    st.divider()
-    decision = result.get("decision")
-    badge = render.badge_for(decision)
-    reason = render.explain_reason(result.get("escalation_reason"))
-    st.markdown(theme.banner_html(decision, badge.label, reason), unsafe_allow_html=True)
+    with st.container(key="df-result"):
+        decision = result.get("decision")
+        badge = render.badge_for(decision)
+        reason = render.explain_reason(result.get("escalation_reason"))
+        detail = result.get("escalation_detail")
+        heading, body, approved = render.reply_panel(result)
+        calls = result.get("tool_calls") or []
 
-    detail = result.get("escalation_detail")
-    if detail and detail != reason:
-        st.caption(detail)
-
-    heading, body, approved = render.reply_panel(result)
-    st.subheader(heading)
-    if body:
-        st.markdown(theme.draft_html(body, approved), unsafe_allow_html=True)
-    else:
-        st.caption("The crew declined to answer this ticket.")
-
-    st.subheader("Tool calls")
-    calls = result.get("tool_calls") or []
-    if calls:
-        st.dataframe(
-            [render.tool_row(call) for call in calls],
-            width="stretch",
-            hide_index=True,
+        blocks = [theme.banner_html(decision, badge.label, reason)]
+        if detail and detail != reason:
+            blocks.append(theme.result_caption_html(detail))
+        blocks.append(theme.result_heading_html(heading))
+        blocks.append(
+            theme.draft_html(body, approved)
+            if body
+            else theme.result_empty_html("The crew declined to answer this ticket.")
         )
-    else:
-        st.caption("No tools were called.")
+        blocks.append(theme.result_heading_html("Tool calls"))
+        blocks.append(
+            theme.tool_table_html([render.tool_row(call) for call in calls])
+            if calls
+            else theme.result_empty_html("No tools were called.")
+        )
+        blocks.append(theme.result_footer_space_html())
+        st.markdown(theme.result_stack_html(blocks), unsafe_allow_html=True)
 
-    label, url = render.trace_label(result.get("langsmith_trace_url"))
-    left, right = st.columns([1, 3])
-    if url:
-        left.link_button(label, url, width="stretch")
-    else:
-        left.button(label, disabled=True, width="stretch")
-    right.markdown(
-        theme.meta_html(render.cost_line(result), str(result.get("ticket_id", ""))),
-        unsafe_allow_html=True,
-    )
+        label, url = render.trace_label(result.get("langsmith_trace_url"))
+        left, _, right = st.columns(
+            [206, 20, 954], gap=None, vertical_alignment="center"
+        )
+        if url:
+            left.link_button(label, url, width="stretch")
+        else:
+            left.button(label, disabled=True, width="stretch")
+        right.markdown(
+            theme.meta_html(render.cost_line(result), str(result.get("ticket_id", ""))),
+            unsafe_allow_html=True,
+        )
+
+
+def draw_output(slot) -> None:
+    """Render the current run outcome into one replaceable region."""
+    with slot.container():
+        if st.session_state.notice:
+            st.info(st.session_state.notice)
+        if st.session_state.error:
+            st.error(st.session_state.error)
+        draw_result()
 
 
 def main() -> None:
@@ -214,49 +288,71 @@ def main() -> None:
     st.markdown(theme.header_html(), unsafe_allow_html=True)
     st.markdown(theme.intro_html(), unsafe_allow_html=True)
 
-    config_column, composer_column, run_column = st.columns([1.5, 2.0, 1.45], gap="large")
+    page_columns = st.columns([280, 24, 572, 24, 280], gap=None)
+    config_column, composer_column, run_column = page_columns[::2]
 
     with config_column, st.container(border=True):
         config = config_panel()
 
     picker_ui.draw_modal(config)
 
-    with composer_column:
+    with composer_column, st.container(border=True):
         examples()
         st.text_area("Ticket", key="ticket", height=140, disabled=running())
-        order_column, action_column = st.columns([1, 1], vertical_alignment="bottom")
+        order_column, _, action_column = st.columns(
+            [404, 12, 106], gap=None, vertical_alignment="bottom"
+        )
         order_column.text_input("Order ID (optional)", key="order_id", disabled=running())
         # Disabled while in flight so a second click cannot start a duplicate run.
-        submit = action_column.button(
+        action_slot = action_column.empty()
+        submit = action_slot.button(
             "Resolve",
+            key="df-resolve",
             type="primary",
             disabled=running() or not st.session_state.ticket.strip(),
+            width="stretch",
         )
+        activity_slot = st.empty()
 
-    with run_column, st.container(border=True):
-        st.markdown(theme.section_label_html("Progress"), unsafe_allow_html=True)
+    with run_column, st.container(border=True, key="df-run-panel"):
+        st.markdown(theme.section_label_html("Progress", bottom=16), unsafe_allow_html=True)
         progress_slot = st.empty()
         tool_slot = st.empty()
 
+    # Notices and completed results share one placeholder. Clearing it before the blocking stream
+    # starts removes the previous outcome immediately instead of leaving stale content below the
+    # cards while the new run is in flight.
+    with st.container(key="df-output"):
+        output_slot = st.empty()
+
     if submit:
         reset_run()
+        output_slot.empty()
         st.session_state.running = True
+        action_slot.button(
+            "Running…",
+            key="df-running",
+            type="primary",
+            disabled=True,
+            width="content",
+        )
         draw_progress(progress_slot)
         draw_tools(tool_slot)
         try:
+            # The selected redesign uses a fixed three-pixel activity rail so the page remains calm
+            # while a cold service or provider is waiting to emit its first streamed event.
+            activity_slot.markdown(theme.loading_html(), unsafe_allow_html=True)
             consume(config, progress_slot, tool_slot)
         finally:
             st.session_state.running = False
+            activity_slot.empty()
+        # Repaint the action control and completed result immediately after the stream ends.
+        st.rerun()
     else:
         draw_progress(progress_slot)
         draw_tools(tool_slot)
 
-    if st.session_state.notice:
-        st.info(st.session_state.notice)
-    if st.session_state.error:
-        st.error(st.session_state.error)
-
-    draw_result()
+    draw_output(output_slot)
 
 
 main()

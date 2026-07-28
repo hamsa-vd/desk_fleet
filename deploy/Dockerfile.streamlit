@@ -28,6 +28,7 @@ COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
 COPY --chown=streamlit:streamlit src ./src
+COPY --chown=streamlit:streamlit .streamlit ./.streamlit
 
 USER streamlit
 EXPOSE 8501

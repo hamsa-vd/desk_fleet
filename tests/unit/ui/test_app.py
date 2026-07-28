@@ -137,12 +137,10 @@ def test_a_resolved_run_renders_the_badge_reply_and_trace_link(service) -> None:
 def test_the_tool_table_shows_the_blocked_call(service) -> None:
     service(STREAM + f"event: done\ndata: {_json(RESOLVED)}\n\n", RESOLVED)
 
-    app = run()
-    rows = [row for frame in app.get("dataframe") for row in frame.value.to_dict("records")]
+    page = text_of(run())
 
-    blocked = [r for r in rows if r["Tool"] == "drop_tables"]
-    assert blocked, "a rejected off-allowlist call must be visible"
-    assert "blocked" in blocked[0]["Status"]
+    assert "drop_tables" in page, "a rejected off-allowlist call must be visible"
+    assert "blocked" in page
 
 
 def test_node_hover_details_include_facts_and_the_unreviewed_draft(service) -> None:

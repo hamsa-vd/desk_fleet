@@ -34,13 +34,18 @@ def draw_models(config: ServiceConfig) -> None:
     current = state()
     for node in NODES:
         line = picker.summary_line(node, current.selections.get(node))
-        left, right = st.columns([2.1, 1], vertical_alignment="center")
-        left.markdown(theme.model_row_html(line), unsafe_allow_html=True)
-        if right.button(
-            "Change", key=f"open-{node}", help=f"Configure the {NODE_LABELS[node]}", width="stretch"
-        ):
-            picker.open_modal(current, node)
-            st.rerun()
+        # The reference uses a 230 px row with a 74 px action and no inter-column gap.
+        with st.container(key=f"model-row-{node}"):
+            left, right = st.columns([156, 74], gap=None, vertical_alignment="center")
+            left.markdown(theme.model_row_html(line), unsafe_allow_html=True)
+            if right.button(
+                "Change",
+                key=f"open-{node}",
+                help=f"Configure the {NODE_LABELS[node]}",
+                width="stretch",
+            ):
+                picker.open_modal(current, node)
+                st.rerun()
 
     if any(current.selections) and st.button("Reset to server defaults", width="stretch"):
         st.session_state[STATE_KEY] = picker.reset(current)

@@ -554,6 +554,13 @@ def test_the_api_image_carries_the_policy_file() -> None:
     assert "policy.md" in dockerfile
 
 
+def test_the_streamlit_image_carries_the_app_theme() -> None:
+    """Cloud Run must not fall back to its visitor's preferred colour scheme."""
+    dockerfile = (DEPLOY / "Dockerfile.streamlit").read_text(encoding="utf-8")
+
+    assert "COPY --chown=streamlit:streamlit .streamlit ./.streamlit" in dockerfile
+
+
 def test_the_build_context_excludes_the_plan_directory() -> None:
     ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
 
