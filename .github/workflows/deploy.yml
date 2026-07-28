@@ -187,7 +187,7 @@ jobs:
             --memory 1Gi \
             --timeout 300 \
             "${secret_flag[@]}" \
-            --set-env-vars "^@^ORDER_API_BASE_URL=${mock_url}@PRODUCT_API_BASE_URL=${mock_url}@LANGCHAIN_TRACING_V2=true@LANGCHAIN_ENDPOINT=https://api.smith.langchain.com@LANGCHAIN_PROJECT=deskfleet@LOG_LEVEL=INFO"
+            --set-env-vars "^@^ORDER_API_BASE_URL=${mock_url}@PRODUCT_API_BASE_URL=${mock_url}@LANGCHAIN_TRACING_V2=true@LANGCHAIN_ENDPOINT=https://aws.api.smith.langchain.com@LANGCHAIN_PROJECT=deskfleet@LOG_LEVEL=INFO"
 
           api_url="$(gcloud run services describe "${API_SERVICE_NAME}" \
             --project "${PROJECT_ID}" \
