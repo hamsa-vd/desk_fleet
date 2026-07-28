@@ -77,4 +77,6 @@ def test_langchain_endpoint_recognition(
 
 def test_constants_match_the_architecture() -> None:
     assert constants.MAX_ITERS == 3
-    assert constants.RECURSION_LIMIT == 8
+    # classifier + researcher + responder/reviewer x MAX_ITERS, plus one so LangGraph's own
+    # recursion guard never trips before the reviewer's bounded-loop escalation gets to run.
+    assert constants.RECURSION_LIMIT == 2 + 2 * constants.MAX_ITERS + 1 == 9

@@ -117,7 +117,7 @@ def test_the_graph_is_invoked_with_the_ticket_id_and_recursion_limit(
     _, done = _drain(ResolveRequest(ticket="Where is my order 1042?"))
 
     assert captured["config"]["configurable"]["thread_id"] == done.result.ticket_id
-    assert captured["config"]["recursion_limit"] == constants.RECURSION_LIMIT == 8
+    assert captured["config"]["recursion_limit"] == constants.RECURSION_LIMIT == 9
 
 
 def test_tokens_and_cost_are_recorded_from_provider_usage(

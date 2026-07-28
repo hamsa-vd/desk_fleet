@@ -110,7 +110,9 @@ def test_only_the_running_node_animates() -> None:
 
 
 def test_running_action_matches_the_reference_treatment() -> None:
-    assert ".st-key-df-running {" in theme.CSS
+    # The running button gets a fresh numbered key per node (df-running, df-running-1, …), so the
+    # selector must match on a prefix rather than the exact "df-running" key.
+    assert '[class*="st-key-df-running"] {' in theme.CSS
     assert "background:linear-gradient(135deg,#f7ce73,#e0a845) !important;" in theme.CSS
     assert "cursor:default !important; opacity:1 !important;" in theme.CSS
     assert "width:max-content !important; min-width:max-content !important;" in theme.CSS
@@ -233,25 +235,23 @@ def test_the_service_panel_uses_the_reference_field_rhythm() -> None:
 def test_the_ticket_box_disables_internal_scrolling_and_can_grow_vertically() -> None:
     assert 'div[data-testid="stElementContainer"].st-key-ticket {' in theme.CSS
     assert "overflow:unset !important;" in theme.CSS
-    assert 'width:calc(100% + 11px) !important;' not in theme.CSS
-    assert ".st-key-ticket [data-testid=\"stTextAreaRootElement\"]" in theme.CSS
+    assert "width:calc(100% + 11px) !important;" not in theme.CSS
+    assert '.st-key-ticket [data-testid="stTextAreaRootElement"]' in theme.CSS
     assert "overflow:hidden !important;" in theme.CSS
     assert "overflow-y:hidden !important; overflow-x:hidden !important;" in theme.CSS
     assert "resize:vertical !important;" in theme.CSS
 
 
 def test_the_right_rail_uses_the_reference_spacing() -> None:
-    assert 'margin:0px 0 16px' in theme.section_label_html("Progress", bottom=16)
-    assert 'margin:0px 0 12px' in theme.section_label_html("Live tool calls", bottom=12)
-    assert 'height:1px;background:var(--color-divider);margin:12px 0 16px' in theme.divider_html()
-    assert 'height:1px;background:var(--color-divider);margin:0px 0 16px' in theme.divider_html(
+    assert "margin:0px 0 16px" in theme.section_label_html("Progress", bottom=16)
+    assert "margin:0px 0 12px" in theme.section_label_html("Live tool calls", bottom=12)
+    assert "height:1px;background:var(--color-divider);margin:12px 0 16px" in theme.divider_html()
+    assert "height:1px;background:var(--color-divider);margin:0px 0 16px" in theme.divider_html(
         top=0
     )
     assert (
-        'font-family:var(--font-body);font-size:12px;line-height:normal;'
-        in theme.quiet_text_html(
-            "No tool calls yet."
-        )
+        "font-family:var(--font-body);font-size:12px;line-height:normal;"
+        in theme.quiet_text_html("No tool calls yet.")
     )
 
 

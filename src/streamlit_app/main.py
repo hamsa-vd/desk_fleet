@@ -169,9 +169,7 @@ def draw_tools(slot) -> None:
     rows = st.session_state.tool_rows
     with slot.container():
         st.markdown(theme.divider_html(top=0), unsafe_allow_html=True)
-        st.markdown(
-            theme.section_label_html("Live tool calls", bottom=12), unsafe_allow_html=True
-        )
+        st.markdown(theme.section_label_html("Live tool calls", bottom=12), unsafe_allow_html=True)
         if rows:
             st.markdown("".join(theme.tool_line_html(row) for row in rows), unsafe_allow_html=True)
         else:
@@ -273,9 +271,7 @@ def draw_result() -> None:
         st.markdown(theme.result_stack_html(blocks), unsafe_allow_html=True)
 
         label, url = render.trace_label(result.get("langsmith_trace_url"))
-        left, _, right = st.columns(
-            [206, 20, 954], gap=None, vertical_alignment="center"
-        )
+        left, _, right = st.columns([206, 20, 954], gap=None, vertical_alignment="center")
         if url:
             left.link_button(label, url, width="stretch")
         else:

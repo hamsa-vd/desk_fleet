@@ -635,7 +635,7 @@ def intro_html() -> str:
 def section_label_html(text: str, top: int = 0, bottom: int = 10) -> str:
     return (
         '<div style="font-family:var(--font-body);font-size:11px;font-weight:800;'
-        'line-height:normal;letter-spacing:.08em;text-transform:uppercase;'
+        "line-height:normal;letter-spacing:.08em;text-transform:uppercase;"
         f'margin:{top}px 0 {bottom}px;color:var(--color-text-faint);">{escape(text)}</div>'
     )
 
@@ -725,7 +725,7 @@ def banner_html(decision: str | None, label: str, reason: str) -> str:
     tail = f" — {escape(reason)}" if reason else ""
     return (
         f'<div class="df-result-banner" style="display:flex;align-items:center;'
-        f'flex-wrap:wrap;gap:14px;'
+        f"flex-wrap:wrap;gap:14px;"
         f"padding:18px 22px;border-radius:16px;background:{colours['bg']};"
         f'animation:df-in .35s ease;">'
         f'<span style="flex:none;width:9px;height:9px;border-radius:50%;'
