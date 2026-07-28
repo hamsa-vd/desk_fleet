@@ -1,0 +1,25 @@
+Live UI: https://deskfleet-web-159759025058.europe-north2.run.app/
+
+
+What I shipped:
+All core outcomes, deployed. Three Cloud Run services: the API, the Streamlit frontend, and a mock vendor API standing in for the order system. Try the one-click examples — the injection and out-of-scope ones show the refusal paths without spending a token.
+
+Key decisions:
+The registry is the allowlist. One path from a model-requested tool name to a callable, and it runs the membership test first. Rejected calls are logged and kept in the audit trail rather than discarded — that row is exactly what a security reviewer comes looking for.
+The Reviewer gets a second, non-LLM opinion. A model grading another model from the same family is a known blind spot, so alongside the LLM verdict a deterministic checker pulls every claim out of the draft — dates, amounts, statuses, tracking numbers — and asserts each one appears in the retrieved facts. Both must pass before a reply goes out.
+Three brakes, not one. _MAX_ITERS=3_ on the Responder↔Reviewer loop, LangGraph's recursion limit behind it, and a separate 5-step cap inside the Researcher's executor.
+Postgres from Neon, not the suggested SQLite. Cloud Run's disk does not survive a scale-down, so a SQLite file is not durable storage — it just looks like it until the instance goes away with the audit trail.
+Business rules live in _policy.md_. Stable rule IDs the Reviewer must cite when it rejects a draft, in plain English, editable by someone who has never opened a terminal.
+
+Core vs stretch
+Core: four-node graph, typed state, conditional routing, iteration guard, three JSON-schema tools, allowlist, injection + PII guardrails, three-way decision, LangSmith tracing, Prometheus/_tiktoken_ cost, SQL audit log, Streamlit UI, Docker, Actions → Cloud Run gated on the safety suite, Grafana dashboard.
+Stretch shipped: SSE streaming of the agent loop, escalation handoff with webhook and audit trail, per-node model picker with BYOK, live model discovery, the deterministic grounding checker.
+
+Not attempted: CrewAI comparison, semantic guardrail, explicit Plan-Act-Reflect loop. I would rather ship fewer things properly tested and deployed.
+
+Known limitations
+• Injection detection is regex-only — fast and free, but a novel obfuscated attack gets through. The semantic layer is what I would add next.
+• The grounding checker is a heuristic, not a proof; it catches invented facts, not subtly wrong prose.
+• The vendor API is a mock — no public API exposes order status.
+• Cold starts are real: _--min-instances 0_ plus a sleeping Neon free tier means the first request is slow.
+• Single-tenant and stateless per ticket — no conversation history.
