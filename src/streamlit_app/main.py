@@ -5,6 +5,8 @@ file arranges what comes back. Layout follows the demo mockup: config and models
 composer in the middle, the live run on the right, and the outcome underneath.
 """
 
+import os
+
 import streamlit as st
 
 from streamlit_app import model_picker, picker_ui, render, theme
@@ -45,7 +47,11 @@ def config_panel() -> ServiceConfig:
 
     with service_tab:
         st.caption("Where the crew runs, and the key it authenticates with.")
-        base_url = st.text_input("Service URL", value="http://localhost:8080", key="base_url")
+        base_url = st.text_input(
+            "Service URL",
+            value=os.getenv("API_BASE_URL", "http://localhost:8080"),
+            key="base_url",
+        )
         # type="password" keeps the key off the screen after entry; it never leaves session state.
         api_key = st.text_input(
             "Service key", type="password", key="api_key", help="Sent as X-API-Key."

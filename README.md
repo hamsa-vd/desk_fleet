@@ -33,7 +33,7 @@ the server's `OPENAI_API_KEY`. That is the intended local default, and the API l
 
 ## Running the whole stack
 
-One command brings up the API, the mock vendor API, Prometheus and Grafana:
+One command brings up the API, the mock vendor API, Streamlit, Prometheus and Grafana:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up --build
@@ -43,6 +43,7 @@ docker compose -f deploy/docker-compose.yml up --build
 |---|---|---|
 | API | http://localhost:8080 | `/health`, `/resolve`, `/resolve/stream`, `/metrics` |
 | Mock vendor API | http://localhost:8081 | orders and products |
+| Streamlit UI | http://localhost:8501 | browser frontend |
 | Prometheus | http://localhost:9090 | scrapes `api:8080/metrics` every 15s |
 | Grafana | http://localhost:3000 | `admin`/`admin`, DeskFleet dashboard already provisioned |
 
@@ -64,6 +65,13 @@ a `remote_write` block. With any of the three unset, the stack runs scrape-only.
 
 The dashboard and its alert rules are committed under `deploy/grafana/` and `deploy/alerts.yml`;
 `tests/unit/deploy/` cross-checks every panel query against the metrics the code actually emits.
+
+### Streamlit UI
+
+The Streamlit frontend is also deployed as a separate Cloud Run service from the same workflow.
+It runs public and reads the API URL from `API_BASE_URL`, so the browser app can talk to the main
+API without any local-only defaults. The user still enters the service key in the UI, which keeps
+the access flow simple and avoids putting the API key into the browser deployment.
 
 ## Database
 
@@ -95,11 +103,11 @@ It runs:
 1. `uv sync --frozen --dev`
 2. `ruff check` and `ruff format --check`
 3. `pytest tests/unit tests/safety tests/prompts`
-4. `docker build` and `docker push` for both service images
+4. `docker build` and `docker push` for the three service images
 5. a new Secret Manager version for every configured secret
-6. `gcloud run deploy` for the mock API first, then the main API
-7. `GET /health` and an unauthenticated `POST /resolve` against the deployed URL, asserting 200
-   and 401
+6. `gcloud run deploy` for the mock API first, then the main API, then the Streamlit UI
+7. `GET /health` against the API, `GET /` against Streamlit, and an unauthenticated `POST /resolve`
+   against the API, asserting 200, 200 and 401
 
 Steps 4–7 only run on `main` or `workflow_dispatch`, and only after step 3 passes — a failing
 safety test stops the pipeline before any image is built.

@@ -27,6 +27,20 @@ services:
       mockapi:
         condition: service_healthy
 
+  streamlit:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      PORT: 8501
+      API_BASE_URL: http://api:8080
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      api:
+        condition: service_healthy
+
   mockapi:
     build:
       context: ..

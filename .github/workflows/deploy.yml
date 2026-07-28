@@ -19,6 +19,7 @@ env:
   PYTHON_VERSION: "3.12"
   API_SERVICE_NAME: deskfleet-api
   MOCK_SERVICE_NAME: deskfleet-mockapi
+  STREAMLIT_SERVICE_NAME: deskfleet-web
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ secrets.GCP_REGION }}
   REPOSITORY: ${{ secrets.GCP_ARTIFACT_REGISTRY_REPOSITORY }}
@@ -100,6 +101,9 @@ jobs:
 
           docker build -f deploy/Dockerfile.api -t "${IMAGE_ROOT}/${API_SERVICE_NAME}:${GITHUB_SHA}" .
           docker push "${IMAGE_ROOT}/${API_SERVICE_NAME}:${GITHUB_SHA}"
+
+          docker build -f deploy/Dockerfile.streamlit -t "${IMAGE_ROOT}/${STREAMLIT_SERVICE_NAME}:${GITHUB_SHA}" .
+          docker push "${IMAGE_ROOT}/${STREAMLIT_SERVICE_NAME}:${GITHUB_SHA}"
 
       - name: Publish secrets to Secret Manager
         id: secrets
@@ -189,17 +193,41 @@ jobs:
             --project "${PROJECT_ID}" \
             --region "${REGION}" \
             --format='value(status.url)')"
+
+          gcloud run deploy "${STREAMLIT_SERVICE_NAME}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --image "${IMAGE_ROOT}/${STREAMLIT_SERVICE_NAME}:${GITHUB_SHA}" \
+            --service-account "${SERVICE_ACCOUNT}" \
+            --allow-unauthenticated \
+            --port 8501 \
+            --min-instances 0 \
+            --memory 512Mi \
+            --timeout 300 \
+            --set-env-vars "^@^API_BASE_URL=${api_url}@LOG_LEVEL=INFO"
+
+          streamlit_url="$(gcloud run services describe "${STREAMLIT_SERVICE_NAME}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --format='value(status.url)')"
+
+          printf 'streamlit_url=%s\n' "${streamlit_url}" >> "${GITHUB_OUTPUT}"
           printf 'api_url=%s\n' "${api_url}" >> "${GITHUB_OUTPUT}"
 
       - name: Verify the deployed revision
         env:
           API_URL: ${{ steps.run_deploy.outputs.api_url }}
+          STREAMLIT_URL: ${{ steps.run_deploy.outputs.streamlit_url }}
         run: |
           set -euo pipefail
 
           health="$(curl -sS -o /dev/null -w '%{http_code}' "${API_URL}/health")"
           echo "GET /health -> ${health}"
           test "${health}" = "200"
+
+          web="$(curl -sS -o /dev/null -w '%{http_code}' "${STREAMLIT_URL}")"
+          echo "GET streamlit -> ${web}"
+          test "${web}" = "200"
 
           # With API_KEY set as a secret, an unauthenticated caller must be turned away.
           unauth="$(curl -sS -o /dev/null -w '%{http_code}' \

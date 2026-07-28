@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1
+# Build context is the repo root: docker build -f deploy/Dockerfile.streamlit .
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
+
+WORKDIR /build
+
+# Streamlit needs the UI extra plus the base runtime dependencies.
+COPY pyproject.toml ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --extra ui --no-install-project
+
+FROM python:3.12-slim-bookworm AS runtime
+
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src \
+    PORT=8501
+
+RUN useradd --create-home --uid 10001 streamlit
+
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY --chown=streamlit:streamlit src ./src
+
+USER streamlit
+EXPOSE 8501
+
+CMD ["sh", "-c", "exec streamlit run src/streamlit_app/main.py --server.address 0.0.0.0 --server.port ${PORT:-8501}"]

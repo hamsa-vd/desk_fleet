@@ -7,6 +7,7 @@ set -eu
 
 COMPOSE="docker compose -f $(dirname "$0")/docker-compose.yml"
 API=${API:-http://localhost:8080}
+STREAMLIT=${STREAMLIT:-http://localhost:8501}
 PROM=${PROM:-http://localhost:9090}
 GRAFANA=${GRAFANA:-http://localhost:3000}
 GRAFANA_AUTH=${GRAFANA_AUTH:-admin:admin}
@@ -34,6 +35,7 @@ $COMPOSE up -d --build
 
 echo "== waiting for services =="
 wait_for "$API/health"
+wait_for "$STREAMLIT"
 wait_for "$PROM/-/ready"
 wait_for "$GRAFANA/api/health"
 
@@ -41,6 +43,10 @@ echo "== the api is not root =="
 user=$($COMPOSE exec -T api whoami)
 [ "$user" != "root" ] || fail "the api container is running as root"
 echo "  running as $user"
+
+echo "== streamlit is serving =="
+curl -fsS "$STREAMLIT" >/dev/null || fail "streamlit did not respond"
+echo "  up: $STREAMLIT"
 
 echo "== prometheus is scraping the api =="
 tries=0

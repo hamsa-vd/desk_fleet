@@ -343,13 +343,16 @@ def test_the_deploy_workflow_uses_the_required_cloud_run_flags() -> None:
 
     assert 'gcloud run deploy "${MOCK_SERVICE_NAME}"' in deploy
     assert 'gcloud run deploy "${API_SERVICE_NAME}"' in deploy
+    assert 'gcloud run deploy "${STREAMLIT_SERVICE_NAME}"' in deploy
     assert "--allow-unauthenticated" in deploy
     assert "--min-instances 0" in deploy
     assert "--timeout 300" in deploy
     assert "--port 8081" in deploy
     assert "--port 8080" in deploy
+    assert "--port 8501" in deploy
     assert "docker build -f deploy/Dockerfile.mockapi" in build
     assert "docker build -f deploy/Dockerfile.api" in build
+    assert "docker build -f deploy/Dockerfile.streamlit" in build
 
 
 def test_images_are_tagged_with_the_commit_sha() -> None:
@@ -473,6 +476,8 @@ def test_the_deployed_revision_is_verified_before_the_job_succeeds() -> None:
 
     assert "/health" in verify
     assert 'test "${health}" = "200"' in verify
+    assert "GET streamlit" in verify
+    assert 'test "${web}" = "200"' in verify
     assert 'test "${unauth}" = "401"' in verify
 
 
@@ -484,8 +489,14 @@ def compose() -> dict:
     return yaml.safe_load((DEPLOY / "docker-compose.yml").read_text(encoding="utf-8"))
 
 
-def test_the_stack_has_all_four_services(compose: dict) -> None:
-    assert set(compose["services"]) == {"api", "mockapi", "prometheus", "grafana"}
+def test_the_stack_has_all_five_services(compose: dict) -> None:
+    assert set(compose["services"]) == {
+        "api",
+        "mockapi",
+        "streamlit",
+        "prometheus",
+        "grafana",
+    }
 
 
 def test_the_api_reaches_the_mock_by_service_name(compose: dict) -> None:
@@ -514,16 +525,16 @@ def test_grafana_provisioning_is_mounted_read_only(compose: dict) -> None:
     assert all(m.endswith(":ro") for m in provisioned)
 
 
-@pytest.mark.parametrize("name", ["Dockerfile.api", "Dockerfile.mockapi"])
+@pytest.mark.parametrize("name", ["Dockerfile.api", "Dockerfile.mockapi", "Dockerfile.streamlit"])
 def test_images_run_as_a_non_root_user_and_bind_all_interfaces(name: str) -> None:
     dockerfile = (DEPLOY / name).read_text(encoding="utf-8")
 
     assert re.search(r"^USER (?!root)", dockerfile, re.MULTILINE), "runtime stage must drop root"
-    assert "--host 0.0.0.0" in dockerfile
+    assert "--host 0.0.0.0" in dockerfile or "--server.address 0.0.0.0" in dockerfile
     assert "${PORT:-" in dockerfile, "the port must come from the environment"
 
 
-@pytest.mark.parametrize("name", ["Dockerfile.api", "Dockerfile.mockapi"])
+@pytest.mark.parametrize("name", ["Dockerfile.api", "Dockerfile.mockapi", "Dockerfile.streamlit"])
 def test_dependencies_install_before_source_is_copied(name: str) -> None:
     """A source edit must not invalidate the dependency layer."""
     lines = (DEPLOY / name).read_text(encoding="utf-8").splitlines()
