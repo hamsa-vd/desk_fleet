@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from streamlit_app.client import (
+    AuthenticationError,
     ServiceConfig,
     StreamUnavailable,
     parse_sse,
@@ -152,9 +153,19 @@ def test_an_omitted_order_id_is_not_sent() -> None:
 
 def test_a_non_200_is_a_stream_failure_not_a_silent_empty_run() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"detail": "temporarily unavailable"})
+
+    with transport(handler) as client, pytest.raises(StreamUnavailable, match="503"):
+        list(stream_ticket(ServiceConfig(), "hello", client=client))
+
+
+def test_a_401_explains_how_to_fix_the_credentials() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"detail": "nope"})
 
-    with transport(handler) as client, pytest.raises(StreamUnavailable, match="401"):
+    with transport(handler) as client, pytest.raises(
+        AuthenticationError, match="Check the Service key"
+    ):
         list(stream_ticket(ServiceConfig(), "hello", client=client))
 
 
@@ -195,6 +206,16 @@ def test_a_failing_fallback_raises_rather_than_returning_a_half_result() -> None
         return httpx.Response(500, json={"detail": "nope"})
 
     with transport(handler) as client, pytest.raises(StreamUnavailable):
+        resolve_ticket(ServiceConfig(), "hello", client=client)
+
+
+def test_a_401_fallback_uses_the_same_authentication_message() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "nope"})
+
+    with transport(handler) as client, pytest.raises(
+        AuthenticationError, match="Check the Service key"
+    ):
         resolve_ticket(ServiceConfig(), "hello", client=client)
 
 

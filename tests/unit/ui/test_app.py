@@ -12,7 +12,11 @@ STREAM = (
     'event: node\ndata: {"node": "classifier", "status": "end", "data": {"category": "order"}}\n\n'
     'event: tool\ndata: {"name": "get_order_status", "ok": true, "latency_ms": 12}\n\n'
     'event: tool\ndata: {"name": "drop_tables", "ok": false, "latency_ms": 0, "rejected": true}\n\n'
-    'event: node\ndata: {"node": "researcher", "status": "end", "data": {"facts": ["a"]}}\n\n'
+    'event: node\ndata: {"node": "researcher", "status": "end", "data": {"facts": ['
+    '{"source": "search_products", "key": "product.name", "value": "Oak desk lamp"}, '
+    '{"source": "search_products", "key": "product.price", "value": "79 GBP"}]}}\n\n'
+    'event: node\ndata: {"node": "responder", "status": "end", "data": {'
+    '"iterations": 2, "draft": "The oak desk lamp is available for 79 GBP."}}\n\n'
 )
 
 RESOLVED = {
@@ -141,6 +145,17 @@ def test_the_tool_table_shows_the_blocked_call(service) -> None:
     assert "blocked" in blocked[0]["Status"]
 
 
+def test_node_hover_details_include_facts_and_the_unreviewed_draft(service) -> None:
+    service(STREAM + f"event: done\ndata: {_json(RESOLVED)}\n\n", RESOLVED)
+
+    page = text_of(run())
+
+    assert "product.name: Oak desk lamp" in page
+    assert "product.price: 79 GBP" in page
+    assert "awaiting reviewer approval" in page
+    assert "The oak desk lamp is available for 79 GBP." in page
+
+
 def test_an_escalation_shows_the_reason_and_the_unapproved_draft(service) -> None:
     service(f"event: done\ndata: {_json(ESCALATED)}\n\n", ESCALATED)
 
@@ -183,6 +198,18 @@ def test_a_failing_stream_falls_back_to_the_json_endpoint(service) -> None:
     assert "RESOLVED" in page
     assert RESOLVED["reply"] in page
     assert "unavailable" in page.lower()
+
+
+def test_an_invalid_service_key_shows_an_authentication_error_without_retrying(service) -> None:
+    requests = service("", None, stream_status=401)
+
+    app = run()
+    page = text_of(app)
+
+    assert requests == ["/resolve/stream"]
+    assert "Authentication failed" in page
+    assert "Check the Service key" in page
+    assert "could not be reached" not in page
 
 
 def test_a_stream_that_never_finishes_falls_back_too(service) -> None:

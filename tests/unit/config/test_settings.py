@@ -10,8 +10,8 @@ def test_defaults_with_empty_environment(settings_factory: Callable[..., Setting
 
     assert settings.openai_api_key is None
     assert settings.api_key is None
-    assert settings.langchain_endpoint == "https://api.smith.langchain.com"
-    assert settings.langchain_project == "deskfleet"
+    assert settings.langchain_endpoint == "https://aws.api.smith.langchain.com"
+    assert settings.langchain_project == "Desk Fleet"
     assert settings.order_api_base_url == "http://localhost:8081"
     assert settings.product_api_base_url == "http://localhost:8081"
     assert settings.max_iters == 3

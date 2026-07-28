@@ -5,6 +5,7 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app import model_picker as picker
+from streamlit_app import theme
 from streamlit_app.client import NODE_LABELS, NODES, ServiceConfig
 
 STATE_KEY = "picker"
@@ -29,14 +30,15 @@ def providers(config: ServiceConfig) -> list[dict[str, Any]]:
     return cache[config.base_url]
 
 
-def draw_sidebar(config: ServiceConfig) -> None:
+def draw_models(config: ServiceConfig) -> None:
     current = state()
-    st.caption("Models")
     for node in NODES:
         line = picker.summary_line(node, current.selections.get(node))
-        left, right = st.columns([3, 1])
-        left.caption(line)
-        if right.button("⚙", key=f"open-{node}", help=f"Configure the {NODE_LABELS[node]}"):
+        left, right = st.columns([2.1, 1], vertical_alignment="center")
+        left.markdown(theme.model_row_html(line), unsafe_allow_html=True)
+        if right.button(
+            "Change", key=f"open-{node}", help=f"Configure the {NODE_LABELS[node]}", width="stretch"
+        ):
             picker.open_modal(current, node)
             st.rerun()
 

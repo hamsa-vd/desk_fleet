@@ -182,6 +182,34 @@ def test_the_responder_summary_counts_drafts() -> None:
     assert render.node_summary("responder", {"iterations": 2}) == "draft 2"
 
 
+def test_the_researcher_detail_lists_fact_values_and_sources() -> None:
+    detail = render.node_detail(
+        "researcher",
+        {
+            "facts": [
+                {
+                    "source": "search_products",
+                    "key": "product.name",
+                    "value": "Oak desk lamp",
+                }
+            ]
+        },
+    )
+
+    assert "product.name: Oak desk lamp" in detail
+    assert "search_products" in detail
+
+
+def test_the_responder_detail_marks_the_draft_as_unreviewed() -> None:
+    detail = render.node_detail(
+        "responder", {"iterations": 2, "draft": "The oak lamp is in stock."}
+    )
+
+    assert "Draft 2" in detail
+    assert "awaiting reviewer approval" in detail
+    assert "The oak lamp is in stock." in detail
+
+
 def test_the_reviewer_summary_reports_a_decision_when_it_has_one() -> None:
     assert render.node_summary("reviewer", {"decision": "resolved"}) == "decision: resolved"
 
@@ -196,6 +224,7 @@ def test_the_reviewer_summary_reports_a_rewrite_request_otherwise() -> None:
 def test_a_summary_never_raises_on_missing_data() -> None:
     for node in ("classifier", "researcher", "responder", "reviewer", "mystery"):
         assert isinstance(render.node_summary(node, None), str)
+        assert isinstance(render.node_detail(node, None), str)
 
 
 # --- the cost line -----------------------------------------------------------------------

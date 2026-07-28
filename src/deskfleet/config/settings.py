@@ -25,9 +25,9 @@ class Settings(BaseSettings):
 
     # LangSmith
     langchain_tracing_v2: bool = True
-    langchain_endpoint: str = "https://api.smith.langchain.com"
+    langchain_endpoint: str = "https://aws.api.smith.langchain.com"
     langchain_api_key: SecretStr | None = None
-    langchain_project: str = "deskfleet"
+    langchain_project: str = "Desk Fleet"
 
     # Upstream data APIs
     order_api_base_url: str = "http://localhost:8081"

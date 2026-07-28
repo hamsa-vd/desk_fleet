@@ -60,13 +60,20 @@ def _build_clients(req: ResolveRequest, creds: Credentials) -> dict[str, Any]:
 
 
 def _node_data(node: str, state: TicketState) -> dict:
-    """What a watcher needs to see that a node did something, without leaking the draft."""
+    """What a watcher needs to inspect the work each completed node produced."""
     category = state.get("category")
     common = {"category": category.value if category else None}
     if node == "researcher":
-        return {**common, "facts": [fact.key for fact in state.get("facts") or []]}
+        return {
+            **common,
+            "facts": [fact.model_dump(mode="json") for fact in state.get("facts") or []],
+        }
     if node == "responder":
-        return {**common, "iterations": state.get("iterations", 0)}
+        return {
+            **common,
+            "iterations": state.get("iterations", 0),
+            "draft": state.get("draft"),
+        }
     if node == "reviewer":
         decision = state.get("decision")
         return {
@@ -181,9 +188,8 @@ def run_ticket(req: ResolveRequest, creds: Credentials) -> Iterator[Event]:
         node_started = time.perf_counter()
         reported_calls = 0
         try:
-            for update in graph.stream(
-                state, config=invocation_config(ticket_id), stream_mode="updates"
-            ):
+            config = {**invocation_config(ticket_id), "callbacks": run.callbacks}
+            for update in graph.stream(state, config=config, stream_mode="updates"):
                 for node, node_state in update.items():
                     observe_node(node, time.perf_counter() - node_started)
                     node_started = time.perf_counter()

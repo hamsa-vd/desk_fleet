@@ -81,7 +81,13 @@ async def event_stream(
                 break
     except Exception as exc:
         # The 200 was committed with the first byte, so a failure can only be reported in-band.
-        logger.error("stream_failed", extra={"cause": type(exc).__name__})
+        # The type alone is not diagnosable — pydantic raises ValueError for anything at all — so
+        # the message and traceback go to the log. Neither reaches the client.
+        logger.error(
+            "stream_failed",
+            exc_info=exc,
+            extra={"cause": type(exc).__name__, "detail": str(exc)},
+        )
         yield encode(EventError(message="the run could not be completed"))
     finally:
         if pending is not None:

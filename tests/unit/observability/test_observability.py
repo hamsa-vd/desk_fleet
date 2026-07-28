@@ -217,8 +217,10 @@ def test_setup_tracing_sets_every_langchain_variable(
 
     import os
 
+    # Asserted against the settings object, not against hardcoded defaults: which region and
+    # project a deployment points at is configuration, and changing it must not fail this test.
     assert os.environ["LANGCHAIN_TRACING_V2"] == "true"
-    assert os.environ["LANGCHAIN_ENDPOINT"] == "https://api.smith.langchain.com"
+    assert os.environ["LANGCHAIN_ENDPOINT"] == settings.langchain_endpoint
     assert os.environ["LANGCHAIN_PROJECT"] == "deskfleet-test"
     assert os.environ["LANGCHAIN_API_KEY"] == "lsv2_pt_test"
     assert any(r.getMessage() == "tracing_configured" for r in caplog.records)
@@ -259,18 +261,14 @@ def test_traced_run_captures_a_per_run_url(monkeypatch: pytest.MonkeyPatch) -> N
         def get_run_url(self) -> str:
             return f"https://smith.langchain.com/o/x/p/y/r/{FakeRun.id}"
 
-    class FakeContext:
-        def __enter__(self) -> FakeCallback:
-            return FakeCallback()
-
-        def __exit__(self, *_: object) -> None:
-            return None
-
+    tracer = FakeCallback()
     monkeypatch.setattr(tracing, "_is_enabled", lambda _: True)
-    monkeypatch.setattr(tracing, "tracing_v2_enabled", lambda **_: FakeContext())
+    monkeypatch.setattr(tracing, "LangChainTracer", lambda **_: tracer)
 
     with traced_run("T-1") as handle:
-        pass
+        # The tracer reaches the graph as a callback, never as a ContextVar: `traced_run` wraps a
+        # yield inside a generator the SSE transport steps through one context at a time.
+        assert handle.callbacks == [tracer]
 
     assert handle.run_id == FakeRun.id
     assert handle.trace_url is not None
@@ -286,15 +284,8 @@ def test_a_failing_trace_url_warns_about_region_mismatch(
         def get_run_url(self) -> str:
             raise RuntimeError("failed to post")
 
-    class FakeContext:
-        def __enter__(self) -> FakeCallback:
-            return FakeCallback()
-
-        def __exit__(self, *_: object) -> None:
-            return None
-
     monkeypatch.setattr(tracing, "_is_enabled", lambda _: True)
-    monkeypatch.setattr(tracing, "tracing_v2_enabled", lambda **_: FakeContext())
+    monkeypatch.setattr(tracing, "LangChainTracer", lambda **_: FakeCallback())
 
     with caplog.at_level("WARNING"), traced_run("T-1") as handle:
         pass

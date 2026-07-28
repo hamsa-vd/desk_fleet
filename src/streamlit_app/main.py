@@ -1,15 +1,17 @@
 """DeskFleet demo UI.
 
 Talks to the service over HTTP only. Every rule about what a decision means lives server-side; this
-file arranges what comes back.
+file arranges what comes back. Layout follows the demo mockup: config and models on the left, the
+composer in the middle, the live run on the right, and the outcome underneath.
 """
 
 import streamlit as st
 
-from streamlit_app import model_picker, picker_ui, render
+from streamlit_app import model_picker, picker_ui, render, theme
 from streamlit_app.client import (
     NODE_LABELS,
     NODES,
+    AuthenticationError,
     ServiceConfig,
     StreamUnavailable,
     resolve_ticket,
@@ -19,7 +21,7 @@ from streamlit_app.examples import EXAMPLES
 
 st.set_page_config(page_title="DeskFleet", page_icon="🎫", layout="wide")
 
-PENDING, ACTIVE, DONE = "⚪", "🔵", "🟢"
+PENDING, ACTIVE, DONE = "pending", "active", "done"
 
 
 def init_state() -> None:
@@ -37,9 +39,12 @@ def init_state() -> None:
         st.session_state.setdefault(key, value)
 
 
-def sidebar() -> ServiceConfig:
-    with st.sidebar:
-        st.subheader("Service")
+def config_panel() -> ServiceConfig:
+    """Service credentials and per-node models, in the two-tab card from the mockup."""
+    service_tab, models_tab = st.tabs(["Service", "Models"])
+
+    with service_tab:
+        st.caption("Where the crew runs, and the key it authenticates with.")
         base_url = st.text_input("Service URL", value="http://localhost:8080", key="base_url")
         # type="password" keeps the key off the screen after entry; it never leaves session state.
         api_key = st.text_input(
@@ -52,15 +57,16 @@ def sidebar() -> ServiceConfig:
             help="Bring your own key and the service runs the crew on it instead.",
         )
 
-        st.divider()
-        picker_ui.draw_sidebar(ServiceConfig(base_url=base_url, api_key=api_key))
+    with models_tab:
+        st.caption("Tune cost against quality, node by node.")
+        picker_ui.draw_models(ServiceConfig(base_url=base_url, api_key=api_key))
 
     config = ServiceConfig(base_url=base_url, api_key=api_key, openai_key=openai_key)
     return model_picker.with_credentials(config, picker_ui.state())
 
 
 def examples() -> None:
-    st.caption("Try one:")
+    st.markdown(theme.section_label_html("Try one"), unsafe_allow_html=True)
     for row_start in range(0, len(EXAMPLES), 3):
         for column, example in zip(
             st.columns(3), EXAMPLES[row_start : row_start + 3], strict=False
@@ -78,24 +84,31 @@ def running() -> bool:
 def reset_run() -> None:
     st.session_state.result = None
     st.session_state.tool_rows = []
-    st.session_state.node_state = dict.fromkeys(NODES, (PENDING, ""))
+    st.session_state.node_state = dict.fromkeys(NODES, (PENDING, "", ""))
     st.session_state.notice = ""
     st.session_state.error = ""
 
 
 def draw_progress(slot) -> None:
     with slot.container():
-        for node in NODES:
-            marker, summary = st.session_state.node_state.get(node, (PENDING, ""))
-            st.write(f"{marker} **{NODE_LABELS[node]}** {summary and '— ' + summary}")
+        rows = [
+            theme.progress_row_html(
+                NODE_LABELS[node],
+                *st.session_state.node_state.get(node, (PENDING, "")),
+            )
+            for node in NODES
+        ]
+        st.markdown("".join(rows), unsafe_allow_html=True)
 
 
 def draw_tools(slot) -> None:
     rows = st.session_state.tool_rows
-    if rows:
-        slot.dataframe(rows, width="stretch", hide_index=True)
-    else:
-        slot.caption("No tool calls yet.")
+    with slot.container():
+        st.markdown(theme.section_label_html("Live tool calls", top=22), unsafe_allow_html=True)
+        if rows:
+            st.markdown("".join(theme.tool_line_html(row) for row in rows), unsafe_allow_html=True)
+        else:
+            st.caption("No tool calls yet.")
 
 
 def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
@@ -111,8 +124,10 @@ def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
                 node = event.data.get("node", "")
                 if node in st.session_state.node_state:
                     marker = ACTIVE if event.data.get("status") == "start" else DONE
-                    summary = render.node_summary(node, event.data.get("data"))
-                    st.session_state.node_state[node] = (marker, summary)
+                    data = event.data.get("data")
+                    summary = render.node_summary(node, data)
+                    detail = render.node_detail(node, data)
+                    st.session_state.node_state[node] = (marker, summary, detail)
                     draw_progress(progress_slot)
             elif event.type == "tool":
                 st.session_state.tool_rows.append(render.tool_row(event.data))
@@ -123,6 +138,9 @@ def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
             elif event.type == "error":
                 st.session_state.error = event.data.get("message", "the run failed")
                 return
+    except AuthenticationError as exc:
+        st.session_state.error = str(exc)
+        return
     except StreamUnavailable as exc:
         st.session_state.notice = f"Live view unavailable ({exc}). Falling back."
 
@@ -136,7 +154,7 @@ def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
     try:
         st.session_state.result = resolve_ticket(config, ticket, order_id, models)
     except StreamUnavailable as exc:
-        st.session_state.error = f"The service could not be reached: {exc}"
+        st.session_state.error = str(exc)
 
 
 def draw_result() -> None:
@@ -144,10 +162,11 @@ def draw_result() -> None:
     if not result:
         return
 
-    badge = render.badge_for(result.get("decision"))
+    st.divider()
+    decision = result.get("decision")
+    badge = render.badge_for(decision)
     reason = render.explain_reason(result.get("escalation_reason"))
-    headline = f"{badge.icon} **{badge.label}**" + (f" — {reason}" if reason else "")
-    getattr(st, badge.tone)(headline)
+    st.markdown(theme.banner_html(decision, badge.label, reason), unsafe_allow_html=True)
 
     detail = result.get("escalation_detail")
     if detail and detail != reason:
@@ -156,7 +175,7 @@ def draw_result() -> None:
     heading, body, approved = render.reply_panel(result)
     st.subheader(heading)
     if body:
-        (st.success if approved else st.warning)(body)
+        st.markdown(theme.draft_html(body, approved), unsafe_allow_html=True)
     else:
         st.caption("The crew declined to answer this ticket.")
 
@@ -177,34 +196,41 @@ def draw_result() -> None:
         left.link_button(label, url, width="stretch")
     else:
         left.button(label, disabled=True, width="stretch")
-    right.caption(render.cost_line(result))
-    right.caption(f"Ticket `{result.get('ticket_id', '')}`")
+    right.markdown(
+        theme.meta_html(render.cost_line(result), str(result.get("ticket_id", ""))),
+        unsafe_allow_html=True,
+    )
 
 
 def main() -> None:
     init_state()
-    config = sidebar()
+    st.markdown(theme.CSS, unsafe_allow_html=True)
+    st.markdown(theme.header_html(), unsafe_allow_html=True)
+    st.markdown(theme.intro_html(), unsafe_allow_html=True)
 
-    st.title("🎫 DeskFleet")
-    st.caption("Classifier → Researcher → Responder → Reviewer")
+    config_column, composer_column, run_column = st.columns([1.5, 2.0, 1.45], gap="large")
+
+    with config_column, st.container(border=True):
+        config = config_panel()
 
     picker_ui.draw_modal(config)
 
-    examples()
-    st.text_area("Ticket", key="ticket", height=140, disabled=running())
-    st.text_input("Order ID (optional)", key="order_id", disabled=running())
+    with composer_column:
+        examples()
+        st.text_area("Ticket", key="ticket", height=140, disabled=running())
+        order_column, action_column = st.columns([1, 1], vertical_alignment="bottom")
+        order_column.text_input("Order ID (optional)", key="order_id", disabled=running())
+        # Disabled while in flight so a second click cannot start a duplicate run.
+        submit = action_column.button(
+            "Resolve",
+            type="primary",
+            disabled=running() or not st.session_state.ticket.strip(),
+        )
 
-    # Disabled while in flight so a second click cannot start a duplicate run.
-    submit = st.button(
-        "Resolve", type="primary", disabled=running() or not st.session_state.ticket.strip()
-    )
-
-    st.divider()
-    left, right = st.columns([1, 2])
-    left.subheader("Progress")
-    progress_slot = left.empty()
-    right.subheader("Live tool calls")
-    tool_slot = right.empty()
+    with run_column, st.container(border=True):
+        st.markdown(theme.section_label_html("Progress"), unsafe_allow_html=True)
+        progress_slot = st.empty()
+        tool_slot = st.empty()
 
     if submit:
         reset_run()
@@ -224,7 +250,6 @@ def main() -> None:
     if st.session_state.error:
         st.error(st.session_state.error)
 
-    st.divider()
     draw_result()
 
 

@@ -30,6 +30,35 @@ class StreamUnavailable(RuntimeError):
     """The live view failed. The caller falls back to POST /resolve rather than showing nothing."""
 
 
+class AuthenticationError(StreamUnavailable):
+    """The service rejected the credentials, so retrying another endpoint cannot help."""
+
+
+AUTHENTICATION_MESSAGE = (
+    "Authentication failed. Check the Service key or provide your own provider API key."
+)
+
+
+def _response_error(response: httpx.Response) -> StreamUnavailable:
+    if response.status_code == 401:
+        return AuthenticationError(AUTHENTICATION_MESSAGE)
+
+    detail = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            value = payload.get("detail")
+            if isinstance(value, str):
+                detail = value
+    except ValueError:
+        pass
+
+    message = f"The service rejected the request ({response.status_code})"
+    if detail:
+        message = f"{message}: {detail}"
+    return StreamUnavailable(message)
+
+
 @dataclass
 class ServiceConfig:
     base_url: str = "http://localhost:8080"
@@ -124,10 +153,10 @@ def stream_ticket(
         ) as response:
             if response.status_code != 200:
                 response.read()
-                raise StreamUnavailable(f"the service answered {response.status_code}")
+                raise _response_error(response)
             yield from parse_sse(response.iter_lines())
-    except httpx.HTTPError as exc:
-        raise StreamUnavailable(str(exc)) from exc
+    except httpx.RequestError as exc:
+        raise StreamUnavailable(f"The service could not be reached: {exc}") from exc
     finally:
         if owned:
             http.close()
@@ -147,10 +176,11 @@ def resolve_ticket(
     http = client or httpx.Client(timeout=JSON_TIMEOUT_S)
     try:
         response = http.post(config.url("/resolve"), json=body, headers=config.headers())
-        response.raise_for_status()
+        if response.status_code != 200:
+            raise _response_error(response)
         return response.json()
-    except httpx.HTTPError as exc:
-        raise StreamUnavailable(str(exc)) from exc
+    except httpx.RequestError as exc:
+        raise StreamUnavailable(f"The service could not be reached: {exc}") from exc
     finally:
         if owned:
             http.close()

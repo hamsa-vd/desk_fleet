@@ -1,0 +1,11 @@
+# Streamlit paints the chrome it owns — widget borders, focus rings, the sidebar — before any of
+# our CSS lands. Setting the palette here stops the page flashing default blue on every rerun.
+[theme]
+base = "light"
+primaryColor = "#ff684e"
+backgroundColor = "#f5ead8"
+secondaryBackgroundColor = "#fdf8ee"
+textColor = "#2a2118"
+
+[client]
+toolbarMode = "minimal"

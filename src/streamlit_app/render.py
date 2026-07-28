@@ -68,6 +68,44 @@ def node_summary(node: str, data: dict[str, Any] | None) -> str:
     return ""
 
 
+def node_detail(node: str, data: dict[str, Any] | None) -> str:
+    """Readable hover detail for a node, built only from its streamed public payload."""
+    data = data or {}
+    if node == "classifier":
+        category = data.get("category")
+        return f"Classified this ticket as {category}." if category else ""
+    if node == "researcher":
+        facts = data.get("facts")
+        if not isinstance(facts, list) or not facts:
+            return "No facts were gathered."
+        lines = ["Facts passed to the responder:"]
+        for fact in facts:
+            if isinstance(fact, dict):
+                key = str(fact.get("key") or "fact")
+                value = str(fact.get("value") or "")
+                source = str(fact.get("source") or "")
+                item = f"• {key}: {value}" if value else f"• {key}"
+                lines.append(f"{item} ({source})" if source else item)
+            else:
+                lines.append(f"• {fact}")
+        return "\n".join(lines)
+    if node == "responder":
+        iterations = data.get("iterations")
+        draft = data.get("draft")
+        label = f"Draft {iterations}" if iterations else "Draft"
+        if draft:
+            return f"{label}, awaiting reviewer approval:\n{draft}"
+        return f"{label} was sent to the reviewer."
+    if node == "reviewer":
+        decision = data.get("decision")
+        notes = data.get("review_notes")
+        lines = [f"Decision: {decision}" if decision else "Review completed."]
+        if isinstance(notes, list) and notes:
+            lines.extend(f"• {note}" for note in notes)
+        return "\n".join(lines)
+    return ""
+
+
 def tool_row(event: dict[str, Any]) -> dict[str, Any]:
     """A rejected off-allowlist call is the most persuasive row in the table — never hide it."""
     rejected = bool(event.get("rejected"))

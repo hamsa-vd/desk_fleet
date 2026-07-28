@@ -1,6 +1,7 @@
 """Drives the picker widgets in the real Streamlit script against a faked service."""
 
 import json
+import re
 
 import httpx
 import pytest
@@ -121,6 +122,8 @@ def service(monkeypatch: pytest.MonkeyPatch):
 
 
 def page_text(app: AppTest) -> str:
+    """What a reader sees, not the markup. The page styles a summary line by wrapping parts of it
+    in tags, which must not change whether the line reads as "Classifier · server default"."""
     parts = [
         *[e.value for e in app.markdown],
         *[e.value for e in app.caption],
@@ -128,7 +131,7 @@ def page_text(app: AppTest) -> str:
         *[e.value for e in app.warning],
         *[e.value for e in app.info],
     ]
-    return "\n".join(str(p) for p in parts)
+    return "\n".join(re.sub(r"<[^>]+>", "", str(p)) for p in parts)
 
 
 def configured(**selections: picker_module.Selection) -> AppTest:

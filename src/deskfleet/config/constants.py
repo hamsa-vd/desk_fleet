@@ -39,4 +39,5 @@ SSN_PLACEHOLDER = "<SSN_REDACTED>"
 KNOWN_LANGCHAIN_ENDPOINTS = (
     "https://api.smith.langchain.com",
     "https://eu.api.smith.langchain.com",
+    "https://aws.api.smith.langchain.com",
 )

@@ -217,6 +217,24 @@ def test_a_tool_event_precedes_the_node_that_produced_it_finishing(
     assert kinds.index("EventTool") < kinds.index("EventNode", kinds.index("EventTool"))
 
 
+def test_node_events_include_the_research_facts_and_unreviewed_draft(
+    client_factory, classifier_says, repository, order_upstream
+) -> None:
+    client_factory(
+        classifier_says("order"),
+        researcher=researcher_calling([{"name": "get_order_status", "args": {"order_id": "1042"}}]),
+        responder=responder_says("Your order has shipped."),
+    )
+
+    events, _ = _drain(ResolveRequest(ticket="Where is my order 1042?", order_id="1042"))
+    nodes = {event.node: event.data for event in events if isinstance(event, EventNode)}
+
+    assert {"source": "get_order_status", "key": "order.status", "value": "shipped"} in nodes[
+        "researcher"
+    ]["facts"]
+    assert nodes["responder"]["draft"] == "Your order has shipped."
+
+
 def test_researched_facts_reach_the_result(
     client_factory, classifier_says, repository, order_upstream
 ) -> None:

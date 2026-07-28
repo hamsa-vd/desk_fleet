@@ -3,9 +3,10 @@
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
-from langchain_core.tracers.context import tracing_v2_enabled
+from langchain_core.tracers.langchain import LangChainTracer
 
 from deskfleet.config import Settings, get_logger, get_settings
 
@@ -17,6 +18,8 @@ class RunHandle:
     run_id: str | None = None
     #: The per-run URL. A project URL is near-useless to a reviewer, so None is better than that.
     trace_url: str | None = None
+    #: Handed to `graph.stream` as `callbacks`. Empty when tracing is off.
+    callbacks: list[Any] = field(default_factory=list)
 
 
 def setup_tracing(settings: Settings | None = None) -> None:
@@ -69,8 +72,14 @@ def traced_run(ticket_id: str) -> Iterator[RunHandle]:
         yield handle
         return
 
+    # Deliberately *not* `tracing_v2_enabled()`. That sets a ContextVar on enter and resets its
+    # token on exit, and this manager wraps a `yield` inside `run_ticket`, a generator. The SSE
+    # transport drives that generator through `iterate_in_threadpool`, which runs every `next()`
+    # in a fresh copy of the context — so the token is set in one context and reset in another,
+    # and teardown dies with "Token ... was created in a different Context" *after* the run has
+    # already produced its result. Passing the tracer as a callback keeps it out of contextvars.
     try:
-        context = tracing_v2_enabled(
+        tracer = LangChainTracer(
             project_name=settings.langchain_project,
             tags=[f"ticket:{ticket_id}"],
         )
@@ -79,8 +88,8 @@ def traced_run(ticket_id: str) -> Iterator[RunHandle]:
         yield handle
         return
 
-    with context as callback:
-        try:
-            yield handle
-        finally:
-            _capture(handle, callback)
+    handle.callbacks = [tracer]
+    try:
+        yield handle
+    finally:
+        _capture(handle, tracer)
