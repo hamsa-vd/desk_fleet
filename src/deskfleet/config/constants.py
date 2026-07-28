@@ -1,7 +1,11 @@
 """Constants shared by more than one module. Business rules belong in policy.md, not here."""
 
 MAX_ITERS = 3
-RECURSION_LIMIT = 8
+# classifier + researcher + responder/reviewer x MAX_ITERS = 2 + 2 * MAX_ITERS node executions on
+# the longest path. LangGraph raises GraphRecursionError once steps taken reach recursion_limit, so
+# the limit must be strictly greater than that count or the reviewer's own bounded-loop escalation
+# (agents/reviewer.py) never gets to run on the final iteration.
+RECURSION_LIMIT = 2 + 2 * MAX_ITERS + 1
 TOKEN_BUDGET_PER_TICKET = 20_000
 
 # Bounds tool steps inside the Researcher's executor. Distinct from MAX_ITERS, which bounds the

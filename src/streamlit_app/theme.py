@@ -213,11 +213,13 @@ p, label, input, textarea, button {{ font-family:var(--font-body) !important; }}
     linear-gradient(135deg,var(--color-accent-bright),var(--color-accent)) !important;
   color:var(--color-accent-soft) !important; filter:none;
 }}
-.st-key-df-running {{
+/* One numbered key per node the run advances to (df-running, df-running-1, df-running-2, …), so
+   the class selector must match on a prefix rather than the exact "df-running" key. */
+[class*="st-key-df-running"] {{
   width:max-content !important; min-width:max-content !important;
   margin-left:auto; overflow:visible !important;
 }}
-.st-key-df-running button {{
+[class*="st-key-df-running"] button {{
   width:max-content !important; min-width:max-content !important;
   height:40px; min-height:40px; padding:0 26px;
   background:linear-gradient(135deg,#f7ce73,#e0a845) !important;
@@ -226,7 +228,7 @@ p, label, input, textarea, button {{ font-family:var(--font-body) !important; }}
   cursor:default !important; opacity:1 !important;
   font-family:Arial,sans-serif !important;
 }}
-.st-key-df-running button p {{
+[class*="st-key-df-running"] button p {{
   font-family:Arial,sans-serif !important; font-size:14px !important;
   line-height:normal !important; font-weight:800 !important;
 }}

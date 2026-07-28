@@ -147,6 +147,8 @@ def reset_run() -> None:
     st.session_state.result = None
     st.session_state.tool_rows = []
     st.session_state.node_state = dict.fromkeys(NODES, (PENDING, "", ""))
+    # The classifier starts immediately, before any event has arrived to say so.
+    st.session_state.node_state[NODES[0]] = (ACTIVE, "", "")
     st.session_state.notice = ""
     st.session_state.error = ""
 
@@ -176,28 +178,40 @@ def draw_tools(slot) -> None:
             st.markdown(theme.quiet_text_html("No tool calls yet."), unsafe_allow_html=True)
 
 
-def consume(config: ServiceConfig, progress_slot, tool_slot) -> None:
+def consume(config: ServiceConfig, progress_slot, tool_slot, action_slot) -> None:
     """Drive one run, painting each event as it arrives."""
     ticket = st.session_state.ticket
     order_id = st.session_state.order_id or None
     models = model_picker.models_payload(picker_ui.state())
     saw_done = False
+    # A fresh key per update: Streamlit forbids re-using a widget key within one script run, and
+    # the button is repainted once per node the loop moves on to, possibly several times per node
+    # (the Responder/Reviewer pair can repeat).
+    step = 0
 
     try:
         for event in stream_ticket(config, ticket, order_id, models):
             if event.type == "node":
                 node = event.data.get("node", "")
                 if node in st.session_state.node_state:
-                    if event.data.get("status") == "start":
-                        marker = ACTIVE
-                        summary = "Working…"
-                        detail = f"{NODE_LABELS[node]} is currently working."
-                    else:
-                        marker = DONE
-                        data = event.data.get("data")
-                        summary = render.node_summary(node, data)
-                        detail = render.node_detail(node, data)
-                    st.session_state.node_state[node] = (marker, summary, detail)
+                    # The runner only ever reports a node finishing, never starting, so "next node
+                    # is now active" is inferred here rather than driven by its own event.
+                    data = event.data.get("data")
+                    summary = render.node_summary(node, data)
+                    detail = render.node_detail(node, data)
+                    st.session_state.node_state[node] = (DONE, summary, detail)
+
+                    upcoming = render.next_node(node, (data or {}).get("decision"))
+                    if upcoming:
+                        st.session_state.node_state[upcoming] = (ACTIVE, "", "")
+                        step += 1
+                        action_slot.button(
+                            render.node_active_summary(upcoming),
+                            key=f"df-running-{step}",
+                            type="primary",
+                            disabled=True,
+                            width="content",
+                        )
                     draw_progress(progress_slot)
             elif event.type == "tool":
                 st.session_state.tool_rows.append(render.tool_row(event.data))
@@ -330,7 +344,7 @@ def main() -> None:
         output_slot.empty()
         st.session_state.running = True
         action_slot.button(
-            "Running…",
+            render.node_active_summary(NODES[0]),
             key="df-running",
             type="primary",
             disabled=True,
@@ -342,7 +356,7 @@ def main() -> None:
             # The selected redesign uses a fixed three-pixel activity rail so the page remains calm
             # while a cold service or provider is waiting to emit its first streamed event.
             activity_slot.markdown(theme.loading_html(), unsafe_allow_html=True)
-            consume(config, progress_slot, tool_slot)
+            consume(config, progress_slot, tool_slot, action_slot)
         finally:
             st.session_state.running = False
             activity_slot.empty()

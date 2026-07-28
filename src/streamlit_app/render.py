@@ -32,6 +32,31 @@ BADGES = {
 
 UNKNOWN_BADGE = Badge("UNKNOWN", "❔", "warning")
 
+#: What a node is doing while its "start" event is the most recent thing seen for it.
+NODE_ACTIVE_LABELS = {
+    "classifier": "Classifying…",
+    "researcher": "Researching…",
+    "responder": "Responding…",
+    "reviewer": "Reviewing…",
+}
+
+
+def node_active_summary(node: str) -> str:
+    return NODE_ACTIVE_LABELS.get(node, "Working…")
+
+
+#: The graph never announces a node starting, only finishing (runner/run.py yields "end" only), so
+#: the UI infers "what's next" from the node that just completed. Reviewer is the one branch: no
+#: decision yet means the loop sends the draft back to the Responder for another pass.
+_NEXT_NODE = {"classifier": "researcher", "researcher": "responder", "responder": "reviewer"}
+
+
+def next_node(node: str, decision: str | None) -> str | None:
+    """The node that starts next, or None once `node` finishing ends the run."""
+    if node == "reviewer":
+        return "responder" if decision is None else None
+    return _NEXT_NODE.get(node)
+
 
 def badge_for(decision: str | None) -> Badge:
     return BADGES.get((decision or "").lower(), UNKNOWN_BADGE)
