@@ -52,6 +52,16 @@ def draw_models(config: ServiceConfig) -> None:
         st.rerun()
 
 
+def _dismiss() -> None:
+    """Streamlit's own X, Esc and click-outside.
+
+    None of those run the Cancel button's code, so without this the discarded draft outlives the
+    dialog — and the next rerun, from any unrelated click, draws the dialog straight back on top
+    of whatever the user was actually trying to do.
+    """
+    picker.cancel(state())
+
+
 def draw_modal(config: ServiceConfig) -> None:
     current = state()
     if current.draft is None:
@@ -65,7 +75,7 @@ def draw_modal(config: ServiceConfig) -> None:
             _body(config, current)
         return
 
-    @dialog(title)
+    @dialog(title, on_dismiss=_dismiss)
     def show() -> None:
         _body(config, current)
 

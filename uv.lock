@@ -216,7 +216,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.2" },
-    { name = "streamlit", marker = "extra == 'ui'", specifier = ">=1.36" },
+    { name = "streamlit", marker = "extra == 'ui'", specifier = ">=1.60" },
     { name = "tiktoken", specifier = ">=0.7" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
@@ -229,7 +229,7 @@ dev = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "respx", specifier = ">=0.21" },
     { name = "ruff", specifier = ">=0.5" },
-    { name = "streamlit", specifier = ">=1.36" },
+    { name = "streamlit", specifier = ">=1.60" },
 ]
 
 [[package]]

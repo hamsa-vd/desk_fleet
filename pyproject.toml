@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ui = ["streamlit>=1.36"]
+ui = ["streamlit>=1.60"]
 
 [project.scripts]
 deskfleet-dev = "deskfleet.dev:main"
@@ -33,7 +33,7 @@ dev = [
     "respx>=0.21",
     "ruff>=0.5",
     "pyyaml>=6.0",
-    "streamlit>=1.36",
+    "streamlit>=1.60",
 ]
 
 [build-system]

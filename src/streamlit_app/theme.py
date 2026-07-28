@@ -456,6 +456,13 @@ div[data-testid="stElementContainer"].st-key-ticket {{
 .st-key-open-reviewer button:hover {{
   border-color:var(--color-text); background:var(--color-surface-muted);
 }}
+/* Apply, in the model dialog, stays put on hover. It is the only primary action on screen at that
+   point, so the brightness shift signalled nothing and just read as a wobble. */
+.st-key-picker-apply button:hover:not(:disabled) {{
+  filter:none;
+  background:linear-gradient(135deg,var(--color-accent-bright),var(--color-accent));
+  border-color:transparent; color:var(--color-accent-soft);
+}}
 .df-sr-only {{
   position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
   clip:rect(0,0,0,0); white-space:nowrap; border:0;
@@ -590,6 +597,14 @@ div[data-testid="stElementContainer"].st-key-ticket {{
 
 [data-testid="stDialog"] [role="dialog"] {{
   border-radius:20px; box-shadow:0 20px 60px rgba(0,0,0,.25);
+}}
+
+/* The global h1-h4 rule near the top of this sheet zeroes padding with !important, which also
+   strips Streamlit's own dialog-title padding — that is why the title ends up flush against the
+   modal edge while the body below keeps its inset. Put it back so "Classifier model" lines up
+   with "Provider" underneath. */
+[data-testid="stDialog"] h2 {{
+  padding:1.5rem 1.5rem .75rem !important;
 }}
 
 @media (max-width: 900px) {{
